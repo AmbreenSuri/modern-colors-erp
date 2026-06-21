@@ -30,8 +30,12 @@ export function ReportsPage() {
   const lowStock = useAsync(() => fetchLowStockReport())
   const supplier = useAsync(() => fetchSupplierReport())
 
-  const handleExportExcel = <T extends object>(name: string, data: T[]) => {
+  const handleExportExcel = <T extends Record<string, unknown>>(
+    name: string,
+    data: T[]
+  ) => {
     exportToCsv(name, data)
+  
     toast({
       title: 'Export Complete',
       description: `${name}.csv downloaded.`,
@@ -59,7 +63,7 @@ export function ReportsPage() {
           onExportExcel={() =>
             handleExportExcel(
               'inventory-report',
-              inventory.data ?? []
+              (inventory.data ?? []) as unknown as Record<string, unknown>[]
             )
           }
           onExportPdf={() => handleExportPdf('Inventory Report')}
@@ -73,7 +77,10 @@ export function ReportsPage() {
           title="Production Report"
           loading={production.loading}
           data={production.data ?? []}
-          onExportExcel={() => handleExportExcel('production-report', production.data ?? [])}
+          onExportExcel={() => handleExportExcel(
+            'production-report',
+            (production.data ?? []) as unknown as Record<string, unknown>[]
+          )}
           onExportPdf={() => handleExportPdf('Production Report')}
           columns={['batchNumber', 'paintType', 'supervisor', 'targetQuantity', 'status', 'date']}
           headers={['Batch', 'Paint Type', 'Supervisor', 'Target (L)', 'Status', 'Date']}
@@ -89,7 +96,10 @@ export function ReportsPage() {
           title="Low Stock Report"
           loading={lowStock.loading}
           data={lowStock.data ?? []}
-          onExportExcel={() => handleExportExcel('low-stock-report', lowStock.data ?? [])}
+          onExportExcel={() => handleExportExcel(
+            'low-stock-report',
+            (lowStock.data ?? []) as unknown as Record<string, unknown>[]
+          )}
           onExportPdf={() => handleExportPdf('Low Stock Report')}
           columns={['materialName', 'sku', 'currentStock', 'minStock', 'deficit', 'unit']}
           headers={['Material', 'SKU', 'Current', 'Min Stock', 'Deficit', 'Unit']}
@@ -101,7 +111,10 @@ export function ReportsPage() {
           title="Supplier Report"
           loading={supplier.loading}
           data={supplier.data ?? []}
-          onExportExcel={() => handleExportExcel('supplier-report', supplier.data ?? [])}
+          onExportExcel={() => handleExportExcel(
+            'supplier-report',
+            (supplier.data ?? []) as unknown as Record<string, unknown>[]
+          )}
           onExportPdf={() => handleExportPdf('Supplier Report')}
           columns={['supplierName', 'totalDeliveries', 'totalWeight', 'materials']}
           headers={['Supplier', 'Deliveries', 'Total Wt (kg)', 'Materials']}

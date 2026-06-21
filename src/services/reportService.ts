@@ -148,21 +148,30 @@ export async function fetchSupplierReport(
   })
 }
 
-export function exportToCsv<T extends Record<string, unknown>>(
+export function exportToCsv<T>(
   filename: string,
   rows: T[]
 ): void {
   if (rows.length === 0) return
 
-  const headers = Object.keys(rows[0])
+  const headers = Object.keys(rows[0] as object)
+
   const csvContent = [
     headers.join(','),
     ...rows.map((row) =>
-      headers.map((h) => `"${String(row[h] ?? '').replace(/"/g, '""')}"`).join(',')
+      headers
+        .map((h) => {
+          const value = (row as Record<string, unknown>)[h]
+          return `"${String(value ?? '').replace(/"/g, '""')}"`
+        })
+        .join(',')
     ),
   ].join('\n')
 
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const blob = new Blob([csvContent], {
+    type: 'text/csv;charset=utf-8;',
+  })
+
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
   link.download = `${filename}.csv`
