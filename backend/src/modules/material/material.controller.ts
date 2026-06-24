@@ -58,9 +58,12 @@ export class MaterialController {
       },
     }));
     const pdf = await this.qr.buildLabelSheet(items);
+    // Sanitize poId (URL-supplied) before it reaches the header — prevents
+    // Content-Disposition / header injection.
+    const safePoId = poId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
     return new StreamableFile(pdf, {
       type: 'application/pdf',
-      disposition: `inline; filename="labels-${poId}.pdf"`,
+      disposition: `inline; filename="labels-${safePoId}.pdf"`,
     });
   }
 }
