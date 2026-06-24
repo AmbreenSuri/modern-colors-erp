@@ -10,8 +10,14 @@ const prisma = new PrismaClient();
 
 async function main() {
   const email = process.env.SEED_ADMIN_EMAIL ?? 'admin@moderncolours.local';
-  const password = process.env.SEED_ADMIN_PASSWORD ?? 'ChangeMe123!';
   const name = process.env.SEED_ADMIN_NAME ?? 'Factory Admin';
+  // No default password — refuse to seed a known/guessable bootstrap credential.
+  const password = process.env.SEED_ADMIN_PASSWORD;
+  if (!password || password.length < 8) {
+    throw new Error(
+      'SEED_ADMIN_PASSWORD is required (min 8 chars). Set it in backend/.env before seeding.',
+    );
+  }
 
   const userCount = await prisma.user.count();
   if (userCount > 0) {

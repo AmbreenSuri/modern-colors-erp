@@ -15,7 +15,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET') ?? 'dev-secret',
+        // Guaranteed present + strong by validateEnv() — no insecure fallback.
+        secret: config.getOrThrow<string>('JWT_SECRET'),
         signOptions: {
           // ms.StringValue (e.g. "12h"); config returns a plain string.
           expiresIn: (config.get<string>('JWT_EXPIRES_IN') ?? '12h') as `${number}h`,
