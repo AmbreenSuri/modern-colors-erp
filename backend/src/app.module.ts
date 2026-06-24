@@ -6,6 +6,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CatalogueModule } from './modules/catalogue/catalogue.module';
+import { SettingsModule } from './modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -15,8 +16,9 @@ import { CatalogueModule } from './modules/catalogue/catalogue.module';
     UsersModule,
     AuthModule,
     CatalogueModule,
+    SettingsModule,
     // Added as they are built:
-    // SettingsModule, PurchaseOrderModule, AiExtractionModule,
+    // PurchaseOrderModule, AiExtractionModule,
     // MaterialModule, QrModule, ReceivingModule, DashboardModule
   ],
 })

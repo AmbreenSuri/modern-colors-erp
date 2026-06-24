@@ -15,6 +15,7 @@
 | 1b | Backend scaffold (NestJS + Prisma + Docker + config) | ✅ | package.json, tsconfig, nest-cli, main.ts, app.module, PrismaModule/Service, .env.example, docker-compose.yml. `npm install` ok (715 pkgs). `nest build` ✅ exit 0. |
 | 2 | Prisma schema (all entities) | ✅ | Users/Roles, Catalogue, PO, POLineItem, Material(+status), QrCode, Setting, AuditLog. `prisma validate` ✅, `prisma generate` ✅. Migration NOT yet run (needs live Postgres). |
 | 3 | Auth + RBAC (JWT, guards, seed admin) | ✅ | `auth`/`users`/`audit` modules. JWT login, JwtAuthGuard + RolesGuard + `@Roles` + `@CurrentUser`. Seed admin (idempotent). Migration applied to **Neon**. Verified e2e (login/me/403/401) + jest test for I5 (5/5 pass). + Security: fail-fast env validation, no secret fallbacks. |
+| 5 | Settings (Claude API key) | ✅ | `settings` module + `CryptoService` (AES-256-GCM). Admin-only encrypt/mask/validate (live Claude check). `getDecryptedKey()` internal only (I2). 16/16 jest. e2e: status false, operator 403, bogus key → 400 CLAUDE_KEY_INVALID via real API. |
 | 4 | Master Catalogue (import + CRUD + match) | ✅ | `catalogue` module. Column-tolerant CSV/Excel import (xlsx), CRUD (soft-delete), match (exact/similar/none, Levenshtein). RBAC: import/edit/delete=Admin, new-SKU create=Admin+Operator (daily new SKUs, provisional TMP- code). 11/11 jest pass; e2e verified (import 20, match 3 types, operator 201/403/200). |
 | 4 | Master Catalogue (import + CRUD + match) | ⬜ | |
 | 5 | Settings (API key encrypt/mask/validate) | ⬜ | Invariant I2 |
@@ -87,6 +88,17 @@
 - Sample CSV at `backend/prisma/sample-catalogue.csv` (20 realistic paint SKUs). Client's real ~70–600 SKU CSV
   to be dropped in when provided (importer should handle as-is).
 - **Next:** Step 5 — Settings module (Claude API key: AES-256-GCM encrypt at rest, masked to FE, validate on save).
+
+### 2026-06-24 — Session 1 (cont.) — Step 5: Settings (Claude API key)
+- **Built `CryptoService`** (AES-256-GCM, key from `ENCRYPTION_KEY`) + **`settings` module**. Admin-only
+  `GET/PUT/DELETE /api/settings/api-key`. PUT validates the key with a live 1-token Claude call (distinguishes
+  invalid/quota/network), encrypts at rest, stores only a masked form; `getDecryptedKey()` is internal-only for
+  the extraction module (I2). Full key never returned to any client.
+- **Verified:** jest 16/16 (incl. crypto round-trip, unique IV, GCM tamper-detect, masking); e2e — status
+  `configured:false`, operator → 403, bogus key validated against the real Claude API → 400 `CLAUDE_KEY_INVALID`.
+- **GitHub:** pushed to `AmbreenSuri/modern-colors-erp`. Stripped all Claude co-author trailers from history per
+  client request; future commits omit them. Wrote full technical README with banner.
+- **Next:** Step 6 — PO upload + Claude extraction (uses `SettingsService.getDecryptedKey`) + manual fallback.
 
 ---
 _Update this log after every step. Newest entries at the bottom of the session log._
