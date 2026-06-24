@@ -5,6 +5,7 @@ import { validateEnv } from './config/env.validation';
 import { AuditModule } from './modules/audit/audit.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { CatalogueModule } from './modules/catalogue/catalogue.module';
 
 @Module({
   imports: [
@@ -13,8 +14,9 @@ import { AuthModule } from './modules/auth/auth.module';
     AuditModule,
     UsersModule,
     AuthModule,
+    CatalogueModule,
     // Added as they are built:
-    // CatalogueModule, SettingsModule, PurchaseOrderModule, AiExtractionModule,
+    // SettingsModule, PurchaseOrderModule, AiExtractionModule,
     // MaterialModule, QrModule, ReceivingModule, DashboardModule
   ],
 })

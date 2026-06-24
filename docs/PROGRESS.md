@@ -14,7 +14,8 @@
 | 1 | Repo restructure + living docs | ✅ | Monorepo done. ARCHITECTURE.md + PROGRESS.md + README + architecture.png created. |
 | 1b | Backend scaffold (NestJS + Prisma + Docker + config) | ✅ | package.json, tsconfig, nest-cli, main.ts, app.module, PrismaModule/Service, .env.example, docker-compose.yml. `npm install` ok (715 pkgs). `nest build` ✅ exit 0. |
 | 2 | Prisma schema (all entities) | ✅ | Users/Roles, Catalogue, PO, POLineItem, Material(+status), QrCode, Setting, AuditLog. `prisma validate` ✅, `prisma generate` ✅. Migration NOT yet run (needs live Postgres). |
-| 3 | Auth + RBAC (JWT, guards, seed admin) | ✅ | `auth`/`users`/`audit` modules. JWT login, JwtAuthGuard + RolesGuard + `@Roles` + `@CurrentUser`. Seed admin (idempotent). Migration applied to **Neon**. Verified e2e (login/me/403/401) + jest test for I5 (5/5 pass). |
+| 3 | Auth + RBAC (JWT, guards, seed admin) | ✅ | `auth`/`users`/`audit` modules. JWT login, JwtAuthGuard + RolesGuard + `@Roles` + `@CurrentUser`. Seed admin (idempotent). Migration applied to **Neon**. Verified e2e (login/me/403/401) + jest test for I5 (5/5 pass). + Security: fail-fast env validation, no secret fallbacks. |
+| 4 | Master Catalogue (import + CRUD + match) | ✅ | `catalogue` module. Column-tolerant CSV/Excel import (xlsx), CRUD (soft-delete), match (exact/similar/none, Levenshtein). RBAC: import/edit/delete=Admin, new-SKU create=Admin+Operator (daily new SKUs, provisional TMP- code). 11/11 jest pass; e2e verified (import 20, match 3 types, operator 201/403/200). |
 | 4 | Master Catalogue (import + CRUD + match) | ⬜ | |
 | 5 | Settings (API key encrypt/mask/validate) | ⬜ | Invariant I2 |
 | 6 | PO upload + Claude extraction + fallback | ⬜ | Invariants I7 |
@@ -72,6 +73,20 @@
   LOGIN/USER_CREATED/SEED_ADMIN_CREATED ✅. **Jest:** `roles.guard.spec.ts` 5/5 pass (locks I5).
 - **Housekeeping:** added `.gitattributes` (LF normalization). `nest build` exit 0.
 - **Next:** Step 4 — Master Catalogue module (Excel/CSV import + CRUD + match lookup for AI validation).
+
+### 2026-06-24 — Session 1 (cont.) — Step 4: Master Catalogue
+- **Built `catalogue` module.** Column-tolerant import (xlsx handles .csv/.xlsx; maps header variants,
+  unknown cols → metadata, upsert by SKU). CRUD with soft-delete. Match util (Levenshtein similarity):
+  EXACT (sku/name) / SIMILAR (≥0.82) / NONE — informational only, never gates (I6).
+- **Client requirement baked in:** new SKUs arrive daily → operators can add a new SKU from a No-Match
+  (with UI confirmation), additive + audited; provisional `TMP-XXXXXX` code auto-generated if no official
+  SKU. Bulk import + edit/delete remain Admin-only.
+- **Verified:** `nest build` exit 0; jest 11/11 (incl. match.util.spec); e2e curl — import sample CSV = 20 created,
+  EXACT (score 1) / SIMILAR (0.94) / NONE; operator new-SKU → 201, operator bulk-import → 403, operator match → 200,
+  provisional SKU + metadata confirmed.
+- Sample CSV at `backend/prisma/sample-catalogue.csv` (20 realistic paint SKUs). Client's real ~70–600 SKU CSV
+  to be dropped in when provided (importer should handle as-is).
+- **Next:** Step 5 — Settings module (Claude API key: AES-256-GCM encrypt at rest, masked to FE, validate on save).
 
 ---
 _Update this log after every step. Newest entries at the bottom of the session log._

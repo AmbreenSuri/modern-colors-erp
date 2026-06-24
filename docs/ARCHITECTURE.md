@@ -90,7 +90,7 @@ NestJS modules (each = folder under `backend/src/modules/`):
 |--------|----------------|----------------------|
 | `auth` | JWT login, token issue/verify, password hashing | `POST /auth/login`, `GET /auth/me` |
 | `users` | User CRUD (Admin), role assignment, seed admin | `GET/POST/PATCH /users` |
-| `catalogue` | Master Catalogue import (Excel/CSV/PDF) + CRUD + match lookup | `POST /catalogue/import`, `GET /catalogue`, `GET /catalogue/match?q=` |
+| `catalogue` | Master Catalogue import (Excel/CSV) + CRUD + match lookup | `POST /catalogue/import` (Admin), `GET /catalogue`, `GET /catalogue/match?q=`, `POST /catalogue` (Admin+**Operator** for new-SKU) |
 | `settings` | Claude API key: encrypt/store/mask/validate/remove (Admin only) | `GET /settings/api-key`, `PUT /settings/api-key`, `DELETE /settings/api-key` |
 | `purchase-order` | PO upload, lifecycle, history, **confirm gate** | `POST /purchase-orders` (upload), `POST /:id/confirm`, `GET /purchase-orders` |
 | `ai-extraction` | Call Claude via stored key, parse JSON, run catalogue validation, fallback flag | invoked by purchase-order; `POST /:id/extract` |
@@ -146,7 +146,13 @@ Cross-cutting: `common/` (guards, decorators, interceptors, crypto util), `prism
 
 ## 9. Open / deferred decisions
 
-- Exact catalogue import column mapping — to confirm against client's real file; importer is column-tolerant with a mapping step.
+- **Daily new SKUs (client requirement):** new materials arrive daily. When a PO line has
+  **No Match**, the operator can add it to the catalogue **with confirmation** (UI confirm) — this is
+  additive + audited (`CATALOGUE_ITEM_ADDED_FROM_NO_MATCH`). Decision: bulk import + edit/delete = **Admin**;
+  single new-SKU create = **Admin + Operator**. If no official SKU code is given, a provisional `TMP-XXXXXX`
+  SKU is auto-generated and flagged `provisional` in metadata for an Admin to normalize later. (Never gates — I6.)
+- Exact catalogue import column mapping — importer is column-tolerant (maps Material Name/SKU/Category/Unit/
+  Standard Packaging + common variants; unknown columns kept in `metadata`). Will confirm against client's real CSV when provided.
 - QR label physical dimensions — default to a printable A4 grid of labels; adjustable.
 - "Ready for Production" = auto on weigh (chosen default) vs. separate confirm tap — using auto for now.
 
