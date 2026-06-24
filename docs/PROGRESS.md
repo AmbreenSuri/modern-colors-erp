@@ -17,6 +17,10 @@
 | 3 | Auth + RBAC (JWT, guards, seed admin) | ✅ | `auth`/`users`/`audit` modules. JWT login, JwtAuthGuard + RolesGuard + `@Roles` + `@CurrentUser`. Seed admin (idempotent). Migration applied to **Neon**. Verified e2e (login/me/403/401) + jest test for I5 (5/5 pass). + Security: fail-fast env validation, no secret fallbacks. |
 | 5 | Settings (Claude API key) | ✅ | `settings` module + `CryptoService` (AES-256-GCM). Admin-only encrypt/mask/validate (live Claude check). `getDecryptedKey()` internal only (I2). 16/16 jest. e2e: status false, operator 403, bogus key → 400 CLAUDE_KEY_INVALID via real API. |
 | 6 | PO upload + AI extraction + manual fallback | ✅ | `StorageService` (R2 + disk fallback), `purchase-order` + `ai-extraction` modules. Upload→PO_UPLOADED; extract via Claude forced-tool → POLineItems w/ catalogue match → AI_EXTRACTED; **manual fallback (I7)**; nothing persisted as Material pre-confirm (I1). 18/18 jest. e2e: upload 201, no-key→fallback, manual→EXACT/SIMILAR/NONE, materials=0, audit chain. |
+| 7 | Operator review (edit/add/delete line items) | ✅ | Line-item CRUD on AI_EXTRACTED POs, re-runs catalogue match, marks `edited`, blocked post-confirm. |
+| 8 | Confirm gate + Material registration + unique IDs + QR + label PDF | ✅ | `material` + `qr` modules. `POST /:id/confirm` (hard gate I1) → 1 Material/unit (I3) w/ `MC-000001` via Postgres sequence (I8) + QR each (data-URL); PO → OPERATOR_VERIFIED → REGISTERED. A4 label sheet (pdf-lib) via `StreamableFile` at `GET /purchase-orders/:id/labels.pdf`. e2e verified (5 units, sequential IDs, QR present, PDF 1.7). |
+| 9 | Receiving: scan + manual weight + offline-idempotent | ✅ | `receiving` module. `POST /receiving/scan` (→ SCANNED, idempotent re-scan, I9), `POST /receiving/:uniqueId/weight` (→ READY_FOR_PRODUCTION; correction = audited new entry I4; weigh-before-scan → 400). e2e verified. |
+| 11 | Dashboard (metrics, filters, search) | ✅ | `dashboard` module. `GET /dashboard/summary` (today's POs, received, pending scan/weigh, ready, supplier/material stats, PO status breakdown) + `GET /dashboard/search` (status/supplier/PO#/q/date filters). e2e verified. |
 | 4 | Master Catalogue (import + CRUD + match) | ✅ | `catalogue` module. Column-tolerant CSV/Excel import (xlsx), CRUD (soft-delete), match (exact/similar/none, Levenshtein). RBAC: import/edit/delete=Admin, new-SKU create=Admin+Operator (daily new SKUs, provisional TMP- code). 11/11 jest pass; e2e verified (import 20, match 3 types, operator 201/403/200). |
 | 4 | Master Catalogue (import + CRUD + match) | ⬜ | |
 | 5 | Settings (API key encrypt/mask/validate) | ⬜ | Invariant I2 |
@@ -26,8 +30,8 @@
 | 9 | QR scan + status lifecycle + manual weight + offline queue | ⬜ | Invariant I9 |
 | 10 | Audit logging threaded through all modules | ⬜ | Invariant I4 |
 | 11 | Dashboard (metrics, filters, search) | ⬜ | |
-| 12 | Frontend rebuild to Phase 1 + wire to API | ⬜ | Park Phase 2 pages |
-| 13 | End-to-end pass | ⬜ | PO → extract → confirm → QR → scan → weigh → Ready |
+| 12 | Frontend rebuild to Phase 1 + wire to API | ⬜ | NEXT — Login, Dashboard, Catalogue, Settings, PO Upload, Review/Confirm, QR Labels, Scan+Weigh, Audit; IndexedDB offline queue (I9 FE side) |
+| 13 | End-to-end pass (backend) | ✅ | Verified live on Neon: upload → manual/extract → confirm (5 units, MC-000001…) → QR → scan → weigh → READY_FOR_PRODUCTION → dashboard + labels PDF. Frontend e2e pending Step 12. |
 
 ## Session log
 
@@ -117,6 +121,22 @@
 - **Git:** consolidated all Phase 1 work onto **`main`** (fast-forward) and pushed directly per client request.
 - **Next:** Step 7 — Operator review/confirm (edit/add/delete line items) + the hard confirm gate that
   creates Materials.
+
+### 2026-06-24 — Session 1 (cont.) — Steps 7–11: confirm gate, materials/QR, receiving, dashboard (backend complete)
+- **Review + confirm (Steps 7–8):** line-item CRUD (edit/add/delete, re-match, blocked post-confirm); `confirm`
+  is the hard gate (I1) — only there are Materials created: 1 per physical unit (I3), sequential `MC-000001`
+  via a Postgres sequence (I8), each with a QR (data-URL); PO → OPERATOR_VERIFIED → REGISTERED, all audited.
+  `qr` module builds A4 printable label sheets (pdf-lib) served as `StreamableFile`.
+- **Receiving (Step 9):** scan → SCANNED (idempotent re-scan, I9); weight → READY_FOR_PRODUCTION; weight on an
+  already-weighed unit = audited CORRECTION (I4); weigh-before-scan rejected.
+- **Dashboard (Step 11):** live summary metrics + filtered search.
+- **Fix:** binary endpoints (labels PDF, PO file) now return `StreamableFile` (raw bytes) — a returned Buffer was
+  being JSON-serialized by Nest.
+- **Verified end-to-end on Neon:** PO → manual entry (3 TiO2 + 2 Acrylic) → confirm → 5 units `MC-000001..5` with
+  QR → scan (+idempotent re-scan) → weigh 24.8 → READY_FOR_PRODUCTION; weigh-before-scan 400; labels PDF (v1.7,
+  40 KB); dashboard (todaysPOs/received/pending/ready/supplier stats). `nest build` 0; jest 18/18.
+- **Backend is feature-complete for Phase 1.** Remaining: Step 12 frontend rebuild (wire Phase 1 screens to the
+  API + IndexedDB offline queue), then a UI end-to-end pass.
 
 ---
 _Update this log after every step. Newest entries at the bottom of the session log._

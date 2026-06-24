@@ -9,7 +9,11 @@ import { AuthModule } from './modules/auth/auth.module';
 import { CatalogueModule } from './modules/catalogue/catalogue.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { AiExtractionModule } from './modules/ai-extraction/ai-extraction.module';
+import { QrModule } from './modules/qr/qr.module';
+import { MaterialModule } from './modules/material/material.module';
 import { PurchaseOrderModule } from './modules/purchase-order/purchase-order.module';
+import { ReceivingModule } from './modules/receiving/receiving.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -22,9 +26,11 @@ import { PurchaseOrderModule } from './modules/purchase-order/purchase-order.mod
     CatalogueModule,
     SettingsModule,
     AiExtractionModule,
+    QrModule,
+    MaterialModule,
     PurchaseOrderModule,
-    // Added as they are built:
-    // MaterialModule, QrModule, ReceivingModule, DashboardModule
+    ReceivingModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}

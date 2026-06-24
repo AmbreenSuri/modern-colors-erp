@@ -15,7 +15,9 @@ import {
   ExtractionError,
   ExtractedLineItem,
 } from '../ai-extraction/ai-extraction.service';
+import { MaterialService } from '../material/material.service';
 import { ManualEntryDto } from './dto/manual-entry.dto';
+import { CreateLineItemDto, UpdateLineItemDto } from './dto/line-item.dto';
 
 const EXT_TO_MIME: Record<string, string> = {
   pdf: 'application/pdf',
@@ -36,6 +38,7 @@ export class PurchaseOrderService {
     private readonly audit: AuditService,
     private readonly catalogue: CatalogueService,
     private readonly extraction: AiExtractionService,
+    private readonly material: MaterialService,
   ) {}
 
   async upload(file: Express.Multer.File, actorId: string) {
@@ -209,7 +212,154 @@ export class PurchaseOrderService {
     return this.findOne(updated.id);
   }
 
+  // ── Operator review (edit the working set before confirming) ──
+
+  async addLineItem(poId: string, dto: CreateLineItemDto, actorId: string) {
+    await this.assertEditable(poId);
+    const match = await this.catalogue.match({ materialName: dto.materialName, sku: dto.sku });
+    await this.prisma.pOLineItem.create({
+      data: {
+        poId,
+        materialName: dto.materialName,
+        sku: dto.sku ?? null,
+        quantity: dto.quantity,
+        unit: dto.unit ?? null,
+        batchNumber: dto.batchNumber ?? null,
+        matchType: match.matchType,
+        matchedCatalogueId: match.matchedId,
+        edited: true,
+      },
+    });
+    await this.audit.log({
+      entityType: 'PurchaseOrder',
+      entityId: poId,
+      action: 'PO_LINE_ADDED',
+      actorId,
+      after: { materialName: dto.materialName, quantity: dto.quantity },
+    });
+    return this.findOne(poId);
+  }
+
+  async updateLineItem(poId: string, itemId: string, dto: UpdateLineItemDto, actorId: string) {
+    await this.assertEditable(poId);
+    const existing = await this.prisma.pOLineItem.findFirst({ where: { id: itemId, poId } });
+    if (!existing) throw new NotFoundException('Line item not found');
+
+    const materialName = dto.materialName ?? existing.materialName;
+    const sku = dto.sku !== undefined ? dto.sku : existing.sku;
+    // Re-match if the identifying fields changed.
+    const reMatch = dto.materialName !== undefined || dto.sku !== undefined;
+    const match = reMatch
+      ? await this.catalogue.match({ materialName, sku })
+      : { matchType: existing.matchType, matchedId: existing.matchedCatalogueId };
+
+    await this.prisma.pOLineItem.update({
+      where: { id: itemId },
+      data: {
+        materialName,
+        sku,
+        quantity: dto.quantity ?? existing.quantity,
+        unit: dto.unit !== undefined ? dto.unit : existing.unit,
+        batchNumber: dto.batchNumber !== undefined ? dto.batchNumber : existing.batchNumber,
+        matchType: match.matchType,
+        matchedCatalogueId: match.matchedId,
+        edited: true,
+      },
+    });
+    await this.audit.log({
+      entityType: 'PurchaseOrder',
+      entityId: poId,
+      action: 'PO_LINE_EDITED',
+      actorId,
+      before: { materialName: existing.materialName, quantity: existing.quantity },
+      after: { materialName, quantity: dto.quantity ?? existing.quantity },
+    });
+    return this.findOne(poId);
+  }
+
+  async deleteLineItem(poId: string, itemId: string, actorId: string) {
+    await this.assertEditable(poId);
+    const existing = await this.prisma.pOLineItem.findFirst({ where: { id: itemId, poId } });
+    if (!existing) throw new NotFoundException('Line item not found');
+    await this.prisma.pOLineItem.delete({ where: { id: itemId } });
+    await this.audit.log({
+      entityType: 'PurchaseOrder',
+      entityId: poId,
+      action: 'PO_LINE_DELETED',
+      actorId,
+      before: { materialName: existing.materialName, quantity: existing.quantity },
+    });
+    return this.findOne(poId);
+  }
+
+  /**
+   * THE HARD GATE (invariant I1). Only here — on explicit operator confirm — are
+   * Material rows created: one per physical unit (I3) with sequential unique IDs
+   * (I8) and a QR each. Runs atomically; PO → OPERATOR_VERIFIED → REGISTERED.
+   */
+  async confirm(id: string, actorId: string) {
+    const po = await this.prisma.purchaseOrder.findUnique({
+      where: { id },
+      include: { lineItems: true },
+    });
+    if (!po) throw new NotFoundException('Purchase order not found');
+    if (po.status !== POStatus.AI_EXTRACTED) {
+      throw new BadRequestException(
+        `PO must be reviewed (status AI_EXTRACTED) before confirmation; current status is ${po.status}.`,
+      );
+    }
+    if (po.lineItems.length === 0) {
+      throw new BadRequestException('Cannot confirm a purchase order with no line items.');
+    }
+
+    const created = await this.prisma.$transaction(
+      async (tx) => {
+        await tx.purchaseOrder.update({
+          where: { id },
+          data: {
+            status: POStatus.OPERATOR_VERIFIED,
+            confirmedById: actorId,
+            confirmedAt: new Date(),
+          },
+        });
+        await this.audit.log(
+          { entityType: 'PurchaseOrder', entityId: id, action: 'OPERATOR_VERIFIED', actorId },
+          tx,
+        );
+
+        const units = await this.material.registerUnits(tx, po, actorId);
+
+        await tx.purchaseOrder.update({ where: { id }, data: { status: POStatus.REGISTERED } });
+        await this.audit.log(
+          {
+            entityType: 'PurchaseOrder',
+            entityId: id,
+            action: 'MATERIALS_REGISTERED',
+            actorId,
+            after: { unitCount: units.length },
+          },
+          tx,
+        );
+        return units;
+      },
+      { timeout: 120000 },
+    );
+
+    const po2 = await this.findOne(id);
+    return { purchaseOrder: po2, registeredUnits: created.length };
+  }
+
   // ── helpers ──
+
+  private async assertEditable(poId: string) {
+    const po = await this.prisma.purchaseOrder.findUnique({ where: { id: poId } });
+    if (!po) throw new NotFoundException('Purchase order not found');
+    if (po.status !== POStatus.AI_EXTRACTED) {
+      throw new BadRequestException(
+        `Line items can only be edited before confirmation (status AI_EXTRACTED); current status is ${po.status}.`,
+      );
+    }
+  }
 
   /** Replace the working-set line items, running catalogue match on each (I6). */
   private async replaceLineItems(poId: string, items: ExtractedLineItem[]) {

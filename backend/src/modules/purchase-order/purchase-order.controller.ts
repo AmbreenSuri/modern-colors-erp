@@ -6,20 +6,24 @@ import {
   Param,
   Post,
   Query,
-  Res,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
 import { POStatus, Role } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import {
+  Delete,
+  Patch,
+} from '@nestjs/common';
 import { PurchaseOrderService } from './purchase-order.service';
 import { ManualEntryDto } from './dto/manual-entry.dto';
+import { CreateLineItemDto, UpdateLineItemDto } from './dto/line-item.dto';
 
 @Controller('purchase-orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -50,18 +54,17 @@ export class PurchaseOrderController {
   }
 
   @Get(':id/file')
-  async file(@Param('id') id: string, @Res({ passthrough: true }) res: Response) {
+  async file(@Param('id') id: string): Promise<StreamableFile> {
     const { buffer, fileName, mimeType } = await this.po.getFile(id);
     // Sanitize the (user-supplied) filename before it reaches the header to
     // prevent header/Content-Disposition injection. ASCII-safe quoted form +
     // RFC 5987 encoded form for the real name.
     const ascii = (fileName || 'po').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 200);
     const encoded = encodeURIComponent(fileName || 'po');
-    res.set({
-      'Content-Type': mimeType,
-      'Content-Disposition': `inline; filename="${ascii}"; filename*=UTF-8''${encoded}`,
+    return new StreamableFile(buffer, {
+      type: mimeType,
+      disposition: `inline; filename="${ascii}"; filename*=UTF-8''${encoded}`,
     });
-    return buffer;
   }
 
   // Writes: Operator (and Admin). Supervisor is read-only.
@@ -87,5 +90,41 @@ export class PurchaseOrderController {
     @CurrentUser() actor: AuthUser,
   ) {
     return this.po.manualEntry(id, dto, actor.id);
+  }
+
+  // ── Operator review: edit the working set before confirming ──
+
+  @Post(':id/line-items')
+  @Roles(Role.ADMIN, Role.OPERATOR)
+  addLine(@Param('id') id: string, @Body() dto: CreateLineItemDto, @CurrentUser() actor: AuthUser) {
+    return this.po.addLineItem(id, dto, actor.id);
+  }
+
+  @Patch(':id/line-items/:itemId')
+  @Roles(Role.ADMIN, Role.OPERATOR)
+  updateLine(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: UpdateLineItemDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.po.updateLineItem(id, itemId, dto, actor.id);
+  }
+
+  @Delete(':id/line-items/:itemId')
+  @Roles(Role.ADMIN, Role.OPERATOR)
+  deleteLine(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.po.deleteLineItem(id, itemId, actor.id);
+  }
+
+  // ── The hard confirm gate (creates Materials + QRs) ──
+  @Post(':id/confirm')
+  @Roles(Role.ADMIN, Role.OPERATOR)
+  confirm(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    return this.po.confirm(id, actor.id);
   }
 }
