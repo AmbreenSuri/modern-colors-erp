@@ -14,7 +14,7 @@
 | 1 | Repo restructure + living docs | ✅ | Monorepo done. ARCHITECTURE.md + PROGRESS.md + README + architecture.png created. |
 | 1b | Backend scaffold (NestJS + Prisma + Docker + config) | ✅ | package.json, tsconfig, nest-cli, main.ts, app.module, PrismaModule/Service, .env.example, docker-compose.yml. `npm install` ok (715 pkgs). `nest build` ✅ exit 0. |
 | 2 | Prisma schema (all entities) | ✅ | Users/Roles, Catalogue, PO, POLineItem, Material(+status), QrCode, Setting, AuditLog. `prisma validate` ✅, `prisma generate` ✅. Migration NOT yet run (needs live Postgres). |
-| 3 | Auth + RBAC (JWT, guards, seed admin) | ⬜ | NEXT |
+| 3 | Auth + RBAC (JWT, guards, seed admin) | ✅ | `auth`/`users`/`audit` modules. JWT login, JwtAuthGuard + RolesGuard + `@Roles` + `@CurrentUser`. Seed admin (idempotent). Migration applied to **Neon**. Verified e2e (login/me/403/401) + jest test for I5 (5/5 pass). |
 | 4 | Master Catalogue (import + CRUD + match) | ⬜ | |
 | 5 | Settings (API key encrypt/mask/validate) | ⬜ | Invariant I2 |
 | 6 | PO upload + Claude extraction + fallback | ⬜ | Invariants I7 |
@@ -58,6 +58,20 @@
 - **Git:** working on `phase-1` branch (not main). `phase2-draft` preserves the prototype.
 - **GATE:** Step 3 (Auth + RBAC) begins once the Neon `DATABASE_URL` is pasted into `backend/.env`
   (migrations + seed need a reachable DB). Auth code can be written meanwhile; verification needs the DB.
+
+### 2026-06-24 — Session 1 (cont.) — Step 3: Auth + RBAC
+- **Neon connected.** Client pasted the Neon `DATABASE_URL`. `prisma migrate dev --name init` applied the full
+  schema to Neon (migration `20260624002144_init`). DB live.
+- **Built `auth` + `users` + `audit` modules.** JWT login (`POST /api/auth/login`, `GET /api/auth/me`);
+  `JwtStrategy` (re-checks user active on every request); `JwtAuthGuard` + `RolesGuard` + `@Roles()` +
+  `@CurrentUser()`. Users CRUD is Admin-only. `AuditService` is append-only (no update/delete — I4); global.
+  bcryptjs for hashing (pure-JS, no native build).
+- **Seed admin** (`npm run seed`, idempotent) → `admin@moderncolours.local`. Created in Neon + audit row.
+- **Verified end-to-end (curl):** admin login→JWT ✅, `/me` ✅, bad password→401 ✅, admin create operator→201 ✅,
+  operator→`GET /users`→**403** ✅ (server-side RBAC I5), admin→200 ✅, no token→401 ✅, audit shows
+  LOGIN/USER_CREATED/SEED_ADMIN_CREATED ✅. **Jest:** `roles.guard.spec.ts` 5/5 pass (locks I5).
+- **Housekeeping:** added `.gitattributes` (LF normalization). `nest build` exit 0.
+- **Next:** Step 4 — Master Catalogue module (Excel/CSV import + CRUD + match lookup for AI validation).
 
 ---
 _Update this log after every step. Newest entries at the bottom of the session log._
