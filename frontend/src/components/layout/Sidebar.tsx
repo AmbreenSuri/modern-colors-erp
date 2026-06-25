@@ -11,21 +11,24 @@ import {
   Paintbrush,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/lib/auth'
+import type { Role } from '@/types/api'
 
-// Phase 1 navigation. Routes are wired up incrementally as each module's UI is
-// built (see docs/PROGRESS.md). No Phase 2 (production/warehouse) entries.
-const navItems = [
+// Phase 1 navigation. `roles` omitted = visible to every authenticated user.
+const navItems: { to: string; label: string; icon: typeof LayoutDashboard; roles?: Role[] }[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/purchase-orders', label: 'PO Upload', icon: FileUp },
   { to: '/review', label: 'Review & Confirm', icon: ClipboardCheck },
   { to: '/labels', label: 'QR Labels', icon: QrCode },
   { to: '/receiving', label: 'Scan & Weigh', icon: ScanLine },
   { to: '/catalogue', label: 'Master Catalogue', icon: BookMarked },
-  { to: '/audit', label: 'Audit Log', icon: ScrollText },
-  { to: '/settings', label: 'Settings', icon: SettingsIcon },
+  { to: '/audit', label: 'Audit Log', icon: ScrollText, roles: ['ADMIN', 'SUPERVISOR'] },
+  { to: '/settings', label: 'Settings', icon: SettingsIcon, roles: ['ADMIN'] },
 ]
 
 export function Sidebar() {
+  const { user } = useAuth()
+  const items = navItems.filter((i) => !i.roles || (user && i.roles.includes(user.role)))
   return (
     <aside className="fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
@@ -39,7 +42,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
-        {navItems.map(({ to, label, icon: Icon }) => (
+        {items.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
