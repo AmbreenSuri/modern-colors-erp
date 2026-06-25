@@ -26,11 +26,18 @@ const navItems: { to: string; label: string; icon: typeof LayoutDashboard; roles
   { to: '/settings', label: 'Settings', icon: SettingsIcon, roles: ['ADMIN'] },
 ]
 
-export function Sidebar() {
+export function Sidebar({ open = false, onNavigate }: { open?: boolean; onNavigate?: () => void }) {
   const { user } = useAuth()
   const items = navItems.filter((i) => !i.roles || (user && i.roles.includes(user.role)))
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+    <aside
+      className={cn(
+        // Off-canvas drawer on mobile; always-visible rail on lg+ (desktop unchanged).
+        'fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground',
+        'transition-transform duration-200 ease-in-out lg:translate-x-0 lg:z-40',
+        open ? 'translate-x-0' : '-translate-x-full',
+      )}
+    >
       <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
         <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
           <Paintbrush className="h-4 w-4 text-primary-foreground" />
@@ -47,6 +54,7 @@ export function Sidebar() {
             key={to}
             to={to}
             end={to === '/'}
+            onClick={onNavigate}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',

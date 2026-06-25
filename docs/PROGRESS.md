@@ -152,5 +152,19 @@
   shows live data (Received 5, Pending Scan 4, Ready 1, Acme 5), Settings (Not configured), Catalogue (21 SKUs).
 - **PHASE 1 COMPLETE** — full stack built, wired, and verified end-to-end. Remaining optional polish only.
 
+### 2026-06-26 — Mobile responsiveness audit (Playwright, 320–768px)
+- **Sidebar (critical):** was permanently visible on mobile, covering ~64% of the screen. Now an off-canvas
+  drawer (`-translate-x-full`, `lg:translate-x-0`) wired to the existing hamburger + backdrop; closes on
+  nav-tap. Desktop (≥lg) unchanged.
+- **Hover-only profile/notification menus (critical for touch):** opened on `group-hover` only — unreachable
+  by tap (couldn't sign out). Added `group-focus-within` so a tap reveals them.
+- **Hamburger tap target:** 40px → 44px (`h-11 w-11`, mobile-only via `lg:hidden`).
+- **Modals:** added `max-w-[calc(100%-2rem)] sm:max-w-lg` gutter on dialog + alert-dialog (no edge-touch on
+  small screens; desktop `max-w-lg` preserved).
+- **Navbar:** title/subtitle truncate (`min-w-0`), subtitle hidden `<sm`; notification panel capped to viewport.
+- **Verified (Playwright):** no horizontal overflow at 320/375/768; tables scroll within their own container,
+  not the page; drawer open/close; dialog gutters; profile opens on tap; desktop (1280) identical (sidebar
+  fixed, hamburger hidden). `vite build` ✅. Only 7 files touched; no design/branding/desktop changes.
+
 ---
 _Update this log after every step. Newest entries at the bottom of the session log._

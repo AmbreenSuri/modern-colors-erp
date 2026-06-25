@@ -31,7 +31,7 @@ export function ProfileDropdown({ className }: { className?: string }) {
           </div>
         </div>
       </Button>
-      <div className="invisible absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border bg-popover py-1 opacity-0 shadow-lg transition-all group-hover:visible group-hover:opacity-100">
+      <div className="invisible absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border bg-popover py-1 opacity-0 shadow-lg transition-all group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
         <div className="flex items-center gap-2 px-3 py-2 text-sm">
           <User className="h-4 w-4 text-muted-foreground" />
           <span className="truncate">{user?.email}</span>

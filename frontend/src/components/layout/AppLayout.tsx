@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Navbar } from './Navbar'
-import { cn } from '@/lib/utils'
 
 // Phase 1 page titles. Keep in sync with Sidebar nav + App routes.
 const pageTitles: Record<string, { title: string; subtitle?: string }> = {
@@ -23,8 +22,8 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Sidebar />
-      <div className={cn('lg:pl-60', sidebarOpen && 'lg:pl-60')}>
+      <Sidebar open={sidebarOpen} onNavigate={() => setSidebarOpen(false)} />
+      <div className="lg:pl-60">
         <Navbar
           title={pageInfo.title}
           subtitle={pageInfo.subtitle}
@@ -37,8 +36,9 @@ export function AppLayout() {
 
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
           onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
         />
       )}
     </div>

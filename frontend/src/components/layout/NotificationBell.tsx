@@ -20,7 +20,7 @@ export function NotificationBell() {
           </span>
         )}
       </Button>
-      <div className="invisible absolute right-0 top-full z-50 mt-1 w-80 rounded-lg border bg-popover p-2 opacity-0 shadow-lg transition-all group-hover:visible group-hover:opacity-100">
+      <div className="invisible absolute right-0 top-full z-50 mt-1 w-72 max-w-[calc(100vw-1rem)] rounded-lg border bg-popover p-2 opacity-0 shadow-lg transition-all group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
         <div className="mb-2 px-2 text-xs font-semibold uppercase text-muted-foreground">
           Notifications
         </div>
