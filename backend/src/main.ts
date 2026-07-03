@@ -21,11 +21,18 @@ async function bootstrap() {
     .map((o) => o.trim());
   app.enableCors({ origin: origins, credentials: true });
 
-  // Bind 0.0.0.0 (all IPv4) so PaaS proxies (Railway/Render) can reach the app —
-  // Node's default host can bind IPv6-only and get an "Application failed to respond".
+  // Bind dual-stack ('::' = all IPv6 + IPv4). Railway healthchecks/private network
+  // are IPv6-only, while its public edge uses IPv4 — '::' serves both. Fall back to
+  // IPv4-only for hosts with IPv6 disabled (e.g. some on-prem servers).
   const port = Number(config.get<string>('PORT') ?? 3000);
-  await app.listen(port, '0.0.0.0');
+  let boundHost = '::';
+  try {
+    await app.listen(port, '::');
+  } catch {
+    boundHost = '0.0.0.0';
+    await app.listen(port, '0.0.0.0');
+  }
   // eslint-disable-next-line no-console
-  console.log(`Modern Colours API listening on 0.0.0.0:${port} (prefix /api)`);
+  console.log(`Modern Colours API listening on ${boundHost}:${port} (prefix /api)`);
 }
 bootstrap();
