@@ -20,5 +20,7 @@ RUN npx prisma generate && npm run build
 # Railway injects PORT at runtime; the app reads it and binds 0.0.0.0.
 EXPOSE 3000
 
-# Apply any pending migrations, then start the compiled server.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+# Start the compiled server directly. NOTE: do NOT run `prisma migrate deploy` here —
+# it hangs on Neon's POOLED endpoint (PgBouncer has no advisory locks). Run migrations
+# separately against a DIRECT (non-pooled) Neon URL: `npx prisma migrate deploy`.
+CMD ["node", "dist/main.js"]
