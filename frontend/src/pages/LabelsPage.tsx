@@ -70,24 +70,26 @@ function LabelsForPo({ poId }: { poId: string }) {
       {units.length === 0 ? (
         <EmptyState icon={QrCode} title="No units for this PO" />
       ) : (
-        <div className="rounded-md border">
+        <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">S.No</TableHead>
                 <TableHead>Unique ID</TableHead>
-                <TableHead>Material</TableHead>
+                <TableHead className="min-w-[180px]">Material</TableHead>
+                <TableHead>HSN Code</TableHead>
                 <TableHead>SKU</TableHead>
-                <TableHead>Batch</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {units.map((m) => (
+              {units.map((m, i) => (
                 <TableRow key={m.id}>
+                  <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
                   <TableCell className="font-mono text-xs">{m.uniqueId}</TableCell>
-                  <TableCell className="font-medium">{m.materialName}</TableCell>
+                  <TableCell className="whitespace-normal break-words font-medium">{m.materialName}</TableCell>
+                  <TableCell className="font-mono text-xs">{m.hsnCode ?? '—'}</TableCell>
                   <TableCell className="font-mono text-xs">{m.sku ?? '—'}</TableCell>
-                  <TableCell>{m.batchNumber ?? '—'}</TableCell>
                   <TableCell>
                     <Badge variant="outline">{m.status.replace(/_/g, ' ')}</Badge>
                   </TableCell>

@@ -192,23 +192,24 @@ function ReviewOne({ poId }: { poId: string }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="min-w-[180px]">Material</TableHead>
+                  <TableHead className="w-10">S.No</TableHead>
+                  <TableHead className="min-w-[200px]">Material</TableHead>
                   <TableHead className="w-28">HSN Code</TableHead>
                   <TableHead className="w-28">SKU</TableHead>
                   <TableHead className="w-20">Qty</TableHead>
                   <TableHead className="w-24">Unit</TableHead>
-                  <TableHead>Batch</TableHead>
+                  <TableHead className="w-24">Weight</TableHead>
                   <TableHead>Match</TableHead>
                   {editable && <TableHead></TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(po.lineItems ?? []).map((li) => (
-                  <LineRow key={li.id} poId={poId} item={li} editable={editable} onChange={load} />
+                {(po.lineItems ?? []).map((li, i) => (
+                  <LineRow key={li.id} poId={poId} item={li} index={i} editable={editable} onChange={load} />
                 ))}
                 {(po.lineItems ?? []).length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center text-sm text-muted-foreground">
                       No materials yet.
                     </TableCell>
                   </TableRow>
@@ -275,11 +276,13 @@ function ReviewOne({ poId }: { poId: string }) {
 function LineRow({
   poId,
   item,
+  index,
   editable,
   onChange,
 }: {
   poId: string
   item: POLineItem
+  index: number
   editable: boolean
   onChange: () => void
 }) {
@@ -289,7 +292,7 @@ function LineRow({
     sku: item.sku ?? '',
     quantity: String(item.quantity),
     unit: item.unit ?? '',
-    batchNumber: item.batchNumber ?? '',
+    weight: item.weight != null ? String(item.weight) : '',
   })
   const [dirty, setDirty] = useState(false)
   const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -305,7 +308,7 @@ function LineRow({
         sku: v.sku || undefined,
         quantity: Number(v.quantity) || 1,
         unit: v.unit || undefined,
-        batchNumber: v.batchNumber || undefined,
+        weight: v.weight.trim() ? Number(v.weight) : undefined,
       })
       setDirty(false)
       onChange()
@@ -323,12 +326,13 @@ function LineRow({
   if (!editable) {
     return (
       <TableRow>
-        <TableCell className="font-medium">{item.materialName}</TableCell>
+        <TableCell className="text-xs text-muted-foreground">{index + 1}</TableCell>
+        <TableCell className="whitespace-normal break-words font-medium">{item.materialName}</TableCell>
         <TableCell className="font-mono text-xs">{item.hsnCode ?? '—'}</TableCell>
         <TableCell className="font-mono text-xs">{item.sku ?? '—'}</TableCell>
         <TableCell>{item.quantity}</TableCell>
         <TableCell>{item.unit ?? '—'}</TableCell>
-        <TableCell>{item.batchNumber ?? '—'}</TableCell>
+        <TableCell>{item.weight != null ? item.weight : '—'}</TableCell>
         <TableCell><span className={`rounded border px-2 py-0.5 text-xs ${m.cls}`}>{m.label}</span></TableCell>
       </TableRow>
     )
@@ -336,12 +340,13 @@ function LineRow({
 
   return (
     <TableRow>
-      <TableCell><Input value={v.materialName} onChange={set('materialName')} className="h-8 min-w-[170px]" /></TableCell>
+      <TableCell className="text-xs text-muted-foreground">{index + 1}</TableCell>
+      <TableCell><Input value={v.materialName} onChange={set('materialName')} className="h-8 min-w-[190px]" /></TableCell>
       <TableCell><Input value={v.hsnCode} onChange={set('hsnCode')} placeholder="HSN" className="h-8 w-24 font-mono" /></TableCell>
       <TableCell><Input value={v.sku} onChange={set('sku')} className="h-8 w-24" /></TableCell>
       <TableCell><Input type="number" min={1} value={v.quantity} onChange={set('quantity')} className="h-8 w-16" /></TableCell>
       <TableCell><Input value={v.unit} onChange={set('unit')} className="h-8 w-20" /></TableCell>
-      <TableCell><Input value={v.batchNumber} onChange={set('batchNumber')} className="h-8 w-24" /></TableCell>
+      <TableCell><Input type="number" min={0} step="any" value={v.weight} onChange={set('weight')} placeholder="Kg" className="h-8 w-20" /></TableCell>
       <TableCell><span className={`rounded border px-2 py-0.5 text-xs ${m.cls}`}>{m.label}</span></TableCell>
       <TableCell>
         <div className="flex gap-1">
@@ -356,7 +361,7 @@ function LineRow({
 }
 
 function AddLine({ poId, onAdded }: { poId: string; onAdded: () => void }) {
-  const [v, setV] = useState({ materialName: '', hsnCode: '', sku: '', quantity: '1', unit: '', batchNumber: '' })
+  const [v, setV] = useState({ materialName: '', hsnCode: '', sku: '', quantity: '1', unit: '', weight: '' })
   const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement>) => setV({ ...v, [k]: e.target.value })
   const add = async () => {
     if (!v.materialName.trim()) return
@@ -366,9 +371,9 @@ function AddLine({ poId, onAdded }: { poId: string; onAdded: () => void }) {
       sku: v.sku || undefined,
       quantity: Number(v.quantity) || 1,
       unit: v.unit || undefined,
-      batchNumber: v.batchNumber || undefined,
+      weight: v.weight.trim() ? Number(v.weight) : undefined,
     })
-    setV({ materialName: '', hsnCode: '', sku: '', quantity: '1', unit: '', batchNumber: '' })
+    setV({ materialName: '', hsnCode: '', sku: '', quantity: '1', unit: '', weight: '' })
     onAdded()
   }
   return (
@@ -378,7 +383,7 @@ function AddLine({ poId, onAdded }: { poId: string; onAdded: () => void }) {
       <Input placeholder="SKU" value={v.sku} onChange={set('sku')} className="h-8 w-24" />
       <Input type="number" min={1} placeholder="Qty" value={v.quantity} onChange={set('quantity')} className="h-8 w-16" />
       <Input placeholder="Unit" value={v.unit} onChange={set('unit')} className="h-8 w-20" />
-      <Input placeholder="Batch" value={v.batchNumber} onChange={set('batchNumber')} className="h-8 w-24" />
+      <Input type="number" min={0} step="any" placeholder="Weight" value={v.weight} onChange={set('weight')} className="h-8 w-24" />
       <Button size="sm" variant="outline" className="h-8 gap-1" onClick={add}>
         <Plus className="h-4 w-4" /> Add
       </Button>
