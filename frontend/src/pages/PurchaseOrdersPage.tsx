@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Camera, Upload } from 'lucide-react'
+import { FileText, Camera, Upload, Keyboard, Plus, Trash2 } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import type { Paginated, PurchaseOrder, POStatus } from '@/types/api'
 import { useAuth } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -27,11 +29,14 @@ const STATUS_STYLE: Record<POStatus, { label: string; variant?: 'default' | 'sec
   REGISTERED: { label: 'Registered', variant: 'default' },
 }
 
+type Mode = 'document' | 'manual'
+
 export function PurchaseOrdersPage() {
   const nav = useNavigate()
   const { hasRole } = useAuth()
   const canUpload = hasRole('ADMIN', 'OPERATOR')
   const [pos, setPos] = useState<PurchaseOrder[]>([])
+  const [mode, setMode] = useState<Mode>('document')
   const [uploading, setUploading] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -64,7 +69,29 @@ export function PurchaseOrdersPage() {
       {canUpload && (
         <Card>
           <CardContent className="space-y-4 pt-6">
-            {cameraOpen ? (
+            {/* Option A vs Option B */}
+            <div className="flex gap-2">
+              <Button
+                variant={mode === 'document' ? 'default' : 'outline'}
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setMode('document')}
+              >
+                <Camera className="h-4 w-4" /> Upload document
+              </Button>
+              <Button
+                variant={mode === 'manual' ? 'default' : 'outline'}
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setMode('manual')}
+              >
+                <Keyboard className="h-4 w-4" /> Enter manually
+              </Button>
+            </div>
+
+            {mode === 'manual' ? (
+              <ManualPoForm />
+            ) : cameraOpen ? (
               <ErrorBoundary
                 fallback={
                   <div className="space-y-3 text-center">
@@ -145,7 +172,7 @@ export function PurchaseOrdersPage() {
         {pos.length === 0 ? (
           <EmptyState icon={FileText} title="No purchase orders yet" />
         ) : (
-          <div className="rounded-md border">
+          <div className="overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -166,7 +193,7 @@ export function PurchaseOrdersPage() {
                       <TableCell className="font-medium">{po.poNumber ?? '—'}</TableCell>
                       <TableCell>{po.supplier ?? '—'}</TableCell>
                       <TableCell className="max-w-[160px] truncate text-xs text-muted-foreground">
-                        {po.fileName ?? '—'}
+                        {po.fileName ?? '(manual)'}
                       </TableCell>
                       <TableCell>{po._count?.lineItems ?? 0}</TableCell>
                       <TableCell>{po._count?.materials ?? 0}</TableCell>
@@ -191,6 +218,130 @@ export function PurchaseOrdersPage() {
             </Table>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+interface ManualLine {
+  materialName: string
+  hsnCode: string
+  sku: string
+  quantity: string
+  unit: string
+  weight: string
+}
+
+const BLANK_LINE: ManualLine = { materialName: '', hsnCode: '', sku: '', quantity: '1', unit: '', weight: '' }
+
+/** Option B — type a PO by hand (no document). Goes through the same review gate. */
+function ManualPoForm() {
+  const nav = useNavigate()
+  const [poNumber, setPoNumber] = useState('')
+  const [supplier, setSupplier] = useState('')
+  const [lines, setLines] = useState<ManualLine[]>([{ ...BLANK_LINE }])
+  const [busy, setBusy] = useState(false)
+
+  const setLine = (i: number, k: keyof ManualLine) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, [k]: e.target.value } : l)))
+  const addLine = () => setLines((prev) => [...prev, { ...BLANK_LINE }])
+  const removeLine = (i: number) => setLines((prev) => (prev.length === 1 ? prev : prev.filter((_, idx) => idx !== i)))
+
+  const valid = lines.some((l) => l.materialName.trim())
+
+  const submit = async () => {
+    const lineItems = lines
+      .filter((l) => l.materialName.trim())
+      .map((l) => ({
+        materialName: l.materialName.trim(),
+        hsnCode: l.hsnCode.trim() || undefined,
+        sku: l.sku.trim() || undefined,
+        quantity: Math.max(1, Math.floor(Number(l.quantity) || 1)),
+        unit: l.unit.trim() || undefined,
+        weight: l.weight.trim() ? Number(l.weight) : undefined,
+      }))
+    if (lineItems.length === 0) return
+    setBusy(true)
+    try {
+      const po = await api.post<PurchaseOrder>('/purchase-orders/manual', {
+        poNumber: poNumber.trim() || undefined,
+        supplier: supplier.trim() || undefined,
+        lineItems,
+      })
+      toast({ title: 'PO created', description: 'Review the details, then confirm to register.' })
+      nav(`/review/${po.id}`)
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Could not create PO',
+        description: err instanceof ApiError ? err.message : 'Unexpected error',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="poNumber">PO number</Label>
+          <Input id="poNumber" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} placeholder="e.g. PKD/26-27/120" />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="supplier">Supplier</Label>
+          <Input id="supplier" value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="e.g. P.K. Dyes & Chemicals" />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Material line items</Label>
+        <p className="text-xs text-muted-foreground">
+          Quantity = number of physical bags/drums (one QR each). Weight = per-package weight in Kg.
+        </p>
+        <div className="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-8">#</TableHead>
+                <TableHead className="min-w-[160px]">Material *</TableHead>
+                <TableHead className="w-24">HSN Code</TableHead>
+                <TableHead className="w-24">SKU</TableHead>
+                <TableHead className="w-16">Qty</TableHead>
+                <TableHead className="w-20">Unit</TableHead>
+                <TableHead className="w-20">Weight</TableHead>
+                <TableHead className="w-8"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lines.map((l, i) => (
+                <TableRow key={i}>
+                  <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+                  <TableCell><Input value={l.materialName} onChange={setLine(i, 'materialName')} className="h-8 min-w-[150px]" /></TableCell>
+                  <TableCell><Input value={l.hsnCode} onChange={setLine(i, 'hsnCode')} className="h-8 w-20 font-mono" /></TableCell>
+                  <TableCell><Input value={l.sku} onChange={setLine(i, 'sku')} className="h-8 w-20" /></TableCell>
+                  <TableCell><Input type="number" min={1} value={l.quantity} onChange={setLine(i, 'quantity')} className="h-8 w-14" /></TableCell>
+                  <TableCell><Input value={l.unit} onChange={setLine(i, 'unit')} placeholder="Bag" className="h-8 w-16" /></TableCell>
+                  <TableCell><Input type="number" min={0} step="any" value={l.weight} onChange={setLine(i, 'weight')} className="h-8 w-16" /></TableCell>
+                  <TableCell>
+                    <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => removeLine(i)} disabled={lines.length === 1}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <Button size="sm" variant="outline" className="gap-1" onClick={addLine}>
+          <Plus className="h-4 w-4" /> Add line
+        </Button>
+      </div>
+
+      <div className="flex justify-end">
+        <Button onClick={submit} disabled={busy || !valid} className="gap-1.5">
+          {busy ? 'Creating…' : 'Create PO & review'}
+        </Button>
       </div>
     </div>
   )

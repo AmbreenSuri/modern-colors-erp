@@ -82,6 +82,13 @@ export class PurchaseOrderController {
     return this.po.upload(file, actor.id);
   }
 
+  // Create a PO by typing it in (no document) — Option B of the upload flow.
+  @Post('manual')
+  @Roles(Role.ADMIN, Role.OPERATOR)
+  createManual(@Body() dto: ManualEntryDto, @CurrentUser() actor: AuthUser) {
+    return this.po.createManual(dto, actor.id);
+  }
+
   @Post(':id/extract')
   @Roles(Role.ADMIN, Role.OPERATOR)
   extract(@Param('id') id: string, @CurrentUser() actor: AuthUser) {

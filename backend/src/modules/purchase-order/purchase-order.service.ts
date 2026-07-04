@@ -185,9 +185,11 @@ export class PurchaseOrderService {
 
     const items: ExtractedLineItem[] = dto.lineItems.map((li) => ({
       materialName: li.materialName,
+      hsnCode: li.hsnCode ?? null,
       sku: li.sku ?? null,
       quantity: li.quantity,
       unit: li.unit ?? null,
+      weight: li.weight ?? null,
       batchNumber: li.batchNumber ?? null,
     }));
     await this.replaceLineItems(po.id, items);
@@ -212,6 +214,43 @@ export class PurchaseOrderService {
     return this.findOne(updated.id);
   }
 
+  /**
+   * Create a brand-new PO from typed data — no document uploaded (Option B). Goes
+   * straight to AI_EXTRACTED so it enters the SAME review/confirm gate as an AI PO.
+   */
+  async createManual(dto: ManualEntryDto, actorId: string) {
+    const po = await this.prisma.purchaseOrder.create({
+      data: {
+        poNumber: dto.poNumber ?? undefined,
+        supplier: dto.supplier ?? undefined,
+        deliveryDate: this.parseDate(dto.deliveryDate),
+        status: POStatus.AI_EXTRACTED,
+        source: POSource.MANUAL,
+        uploadedById: actorId,
+      },
+    });
+
+    const items: ExtractedLineItem[] = dto.lineItems.map((li) => ({
+      materialName: li.materialName,
+      hsnCode: li.hsnCode ?? null,
+      sku: li.sku ?? null,
+      quantity: li.quantity,
+      unit: li.unit ?? null,
+      weight: li.weight ?? null,
+      batchNumber: li.batchNumber ?? null,
+    }));
+    await this.replaceLineItems(po.id, items);
+
+    await this.audit.log({
+      entityType: 'PurchaseOrder',
+      entityId: po.id,
+      action: 'PO_MANUAL_CREATED',
+      actorId,
+      after: { poNumber: po.poNumber, lineItemCount: items.length },
+    });
+    return this.findOne(po.id);
+  }
+
   // ── Operator review (edit the working set before confirming) ──
 
   async addLineItem(poId: string, dto: CreateLineItemDto, actorId: string) {
@@ -221,9 +260,11 @@ export class PurchaseOrderService {
       data: {
         poId,
         materialName: dto.materialName,
+        hsnCode: dto.hsnCode ?? null,
         sku: dto.sku ?? null,
         quantity: dto.quantity,
         unit: dto.unit ?? null,
+        weight: dto.weight ?? null,
         batchNumber: dto.batchNumber ?? null,
         matchType: match.matchType,
         matchedCatalogueId: match.matchedId,
@@ -257,9 +298,11 @@ export class PurchaseOrderService {
       where: { id: itemId },
       data: {
         materialName,
+        hsnCode: dto.hsnCode !== undefined ? dto.hsnCode : existing.hsnCode,
         sku,
         quantity: dto.quantity ?? existing.quantity,
         unit: dto.unit !== undefined ? dto.unit : existing.unit,
+        weight: dto.weight !== undefined ? dto.weight : existing.weight,
         batchNumber: dto.batchNumber !== undefined ? dto.batchNumber : existing.batchNumber,
         matchType: match.matchType,
         matchedCatalogueId: match.matchedId,
@@ -374,9 +417,11 @@ export class PurchaseOrderService {
           data: {
             poId,
             materialName: item.materialName,
+            hsnCode: item.hsnCode,
             sku: item.sku,
             quantity: item.quantity,
             unit: item.unit,
+            weight: item.weight,
             batchNumber: item.batchNumber,
             matchType: match.matchType,
             matchedCatalogueId: match.matchedId,

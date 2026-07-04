@@ -36,6 +36,7 @@ export interface CatalogueItem {
   id: string
   materialName: string
   sku: string
+  hsnCode: string | null
   category: string | null
   unit: string | null
   standardPackaging: string | null
@@ -45,9 +46,11 @@ export interface CatalogueItem {
 export interface POLineItem {
   id: string
   materialName: string
+  hsnCode: string | null
   sku: string | null
   quantity: number
   unit: string | null
+  weight: number | null
   batchNumber: string | null
   matchType: MatchType
   matchedCatalogueId: string | null
@@ -74,9 +77,11 @@ export interface Material {
   uniqueId: string
   materialName: string
   sku: string | null
+  hsnCode: string | null
   supplier: string | null
   batchNumber: string | null
   unit: string | null
+  weight: number | null
   status: MaterialStatus
   receivedWeight: number | null
   weighedAt: string | null

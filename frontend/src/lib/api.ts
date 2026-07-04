@@ -114,4 +114,13 @@ export const api = {
     window.open(url, '_blank')
     setTimeout(() => URL.revokeObjectURL(url), 60_000)
   },
+
+  // Fetch a binary endpoint (with the bearer token) as an object URL + content type,
+  // for embedding (e.g. the PO document preview). Caller must revoke the URL.
+  fetchBlobUrl: async (path: string): Promise<{ url: string; contentType: string }> => {
+    const res = await fetch(`${API_BASE_URL}${path}`, { headers: authHeaders() })
+    if (!res.ok) throw new ApiError(`Load failed (${res.status})`, res.status)
+    const blob = await res.blob()
+    return { url: URL.createObjectURL(blob), contentType: res.headers.get('content-type') || blob.type }
+  },
 }

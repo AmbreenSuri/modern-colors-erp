@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { Sparkles, Trash2, Plus, CheckCircle2, ClipboardCheck } from 'lucide-react'
+import { Sparkles, Trash2, Plus, CheckCircle2, ClipboardCheck, FileText } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import type { Paginated, PurchaseOrder, POLineItem, MatchType } from '@/types/api'
 import { Button } from '@/components/ui/button'
@@ -50,6 +50,58 @@ function ReviewPicker() {
         </Link>
       ))}
     </div>
+  )
+}
+
+/** The uploaded PO document (image or PDF) rendered for visual verification (item 3). */
+function PoDocumentPreview({ poId }: { poId: string }) {
+  const [state, setState] = useState<{ url: string; isPdf: boolean } | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    let objectUrl = ''
+    api
+      .fetchBlobUrl(`/purchase-orders/${poId}/file`)
+      .then(({ url, contentType }) => {
+        objectUrl = url
+        if (active) setState({ url, isPdf: contentType.includes('pdf') })
+        else URL.revokeObjectURL(url)
+      })
+      .catch(() => active && setFailed(true))
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [poId])
+
+  if (failed) return null // manual PO / no file — nothing to preview
+  return (
+    <Card className="xl:sticky xl:top-4">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-1.5 text-sm">
+          <FileText className="h-4 w-4" /> Uploaded document
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {!state ? (
+          <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+            Loading document…
+          </div>
+        ) : state.isPdf ? (
+          <iframe title="PO document" src={state.url} className="h-[60vh] w-full rounded border" />
+        ) : (
+          <img
+            src={state.url}
+            alt="Purchase order"
+            className="max-h-[70vh] w-full rounded border object-contain"
+          />
+        )}
+        <p className="mt-2 text-center text-xs text-muted-foreground">
+          Compare the extracted rows against this document before confirming.
+        </p>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -106,8 +158,10 @@ function ReviewOne({ poId }: { poId: string }) {
 
   const totalUnits = (po.lineItems ?? []).reduce((n, li) => n + li.quantity, 0)
   const editable = po.status === 'AI_EXTRACTED'
+  const hasDocument = Boolean(po.fileName)
+  const largeCount = totalUnits > 300
 
-  return (
+  const workingArea = (
     <div className="space-y-4">
       <Card>
         <CardHeader className="pb-3">
@@ -134,14 +188,15 @@ function ReviewOne({ poId }: { poId: string }) {
 
       {(po.status === 'AI_EXTRACTED' || po.lineItems?.length) ? (
         <div className="space-y-3">
-          <div className="rounded-md border">
+          <div className="overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Material</TableHead>
-                  <TableHead>SKU</TableHead>
+                  <TableHead className="min-w-[180px]">Material</TableHead>
+                  <TableHead className="w-28">HSN Code</TableHead>
+                  <TableHead className="w-28">SKU</TableHead>
                   <TableHead className="w-20">Qty</TableHead>
-                  <TableHead>Unit</TableHead>
+                  <TableHead className="w-24">Unit</TableHead>
                   <TableHead>Batch</TableHead>
                   <TableHead>Match</TableHead>
                   {editable && <TableHead></TableHead>}
@@ -153,7 +208,7 @@ function ReviewOne({ poId }: { poId: string }) {
                 ))}
                 {(po.lineItems ?? []).length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
                       No materials yet.
                     </TableCell>
                   </TableRow>
@@ -165,6 +220,13 @@ function ReviewOne({ poId }: { poId: string }) {
           {editable && (
             <>
               <AddLine poId={poId} onAdded={load} />
+              {largeCount && (
+                <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700">
+                  This PO will create <span className="font-semibold">{totalUnits}</span> QR codes.
+                  Double-check the <span className="font-semibold">Qty</span> column reflects the
+                  number of physical bags/drums (not the total weight in Kg).
+                </p>
+              )}
               <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3">
                 <p className="text-sm">
                   <span className="font-medium">{totalUnits}</span> physical units will be registered
@@ -184,6 +246,19 @@ function ReviewOne({ poId }: { poId: string }) {
           )}
         </div>
       ) : null}
+    </div>
+  )
+
+  return (
+    <>
+      {hasDocument ? (
+        <div className="grid gap-4 xl:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
+          <PoDocumentPreview poId={poId} />
+          {workingArea}
+        </div>
+      ) : (
+        workingArea
+      )}
 
       <ConfirmationDialog
         open={confirmOpen}
@@ -193,7 +268,7 @@ function ReviewOne({ poId }: { poId: string }) {
         confirmLabel="Confirm"
         onConfirm={confirm}
       />
-    </div>
+    </>
   )
 }
 
@@ -210,6 +285,7 @@ function LineRow({
 }) {
   const [v, setV] = useState({
     materialName: item.materialName,
+    hsnCode: item.hsnCode ?? '',
     sku: item.sku ?? '',
     quantity: String(item.quantity),
     unit: item.unit ?? '',
@@ -225,6 +301,7 @@ function LineRow({
     try {
       await api.patch(`/purchase-orders/${poId}/line-items/${item.id}`, {
         materialName: v.materialName,
+        hsnCode: v.hsnCode || undefined,
         sku: v.sku || undefined,
         quantity: Number(v.quantity) || 1,
         unit: v.unit || undefined,
@@ -247,6 +324,7 @@ function LineRow({
     return (
       <TableRow>
         <TableCell className="font-medium">{item.materialName}</TableCell>
+        <TableCell className="font-mono text-xs">{item.hsnCode ?? '—'}</TableCell>
         <TableCell className="font-mono text-xs">{item.sku ?? '—'}</TableCell>
         <TableCell>{item.quantity}</TableCell>
         <TableCell>{item.unit ?? '—'}</TableCell>
@@ -258,8 +336,9 @@ function LineRow({
 
   return (
     <TableRow>
-      <TableCell><Input value={v.materialName} onChange={set('materialName')} className="h-8" /></TableCell>
-      <TableCell><Input value={v.sku} onChange={set('sku')} className="h-8 w-28" /></TableCell>
+      <TableCell><Input value={v.materialName} onChange={set('materialName')} className="h-8 min-w-[170px]" /></TableCell>
+      <TableCell><Input value={v.hsnCode} onChange={set('hsnCode')} placeholder="HSN" className="h-8 w-24 font-mono" /></TableCell>
+      <TableCell><Input value={v.sku} onChange={set('sku')} className="h-8 w-24" /></TableCell>
       <TableCell><Input type="number" min={1} value={v.quantity} onChange={set('quantity')} className="h-8 w-16" /></TableCell>
       <TableCell><Input value={v.unit} onChange={set('unit')} className="h-8 w-20" /></TableCell>
       <TableCell><Input value={v.batchNumber} onChange={set('batchNumber')} className="h-8 w-24" /></TableCell>
@@ -277,24 +356,26 @@ function LineRow({
 }
 
 function AddLine({ poId, onAdded }: { poId: string; onAdded: () => void }) {
-  const [v, setV] = useState({ materialName: '', sku: '', quantity: '1', unit: '', batchNumber: '' })
+  const [v, setV] = useState({ materialName: '', hsnCode: '', sku: '', quantity: '1', unit: '', batchNumber: '' })
   const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement>) => setV({ ...v, [k]: e.target.value })
   const add = async () => {
     if (!v.materialName.trim()) return
     await api.post(`/purchase-orders/${poId}/line-items`, {
       materialName: v.materialName.trim(),
+      hsnCode: v.hsnCode || undefined,
       sku: v.sku || undefined,
       quantity: Number(v.quantity) || 1,
       unit: v.unit || undefined,
       batchNumber: v.batchNumber || undefined,
     })
-    setV({ materialName: '', sku: '', quantity: '1', unit: '', batchNumber: '' })
+    setV({ materialName: '', hsnCode: '', sku: '', quantity: '1', unit: '', batchNumber: '' })
     onAdded()
   }
   return (
     <div className="flex flex-wrap items-end gap-2 rounded-md border border-dashed p-3">
       <Input placeholder="Material name" value={v.materialName} onChange={set('materialName')} className="h-8 w-44" />
-      <Input placeholder="SKU" value={v.sku} onChange={set('sku')} className="h-8 w-28" />
+      <Input placeholder="HSN" value={v.hsnCode} onChange={set('hsnCode')} className="h-8 w-24 font-mono" />
+      <Input placeholder="SKU" value={v.sku} onChange={set('sku')} className="h-8 w-24" />
       <Input type="number" min={1} placeholder="Qty" value={v.quantity} onChange={set('quantity')} className="h-8 w-16" />
       <Input placeholder="Unit" value={v.unit} onChange={set('unit')} className="h-8 w-20" />
       <Input placeholder="Batch" value={v.batchNumber} onChange={set('batchNumber')} className="h-8 w-24" />

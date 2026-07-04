@@ -13,6 +13,10 @@ export class CreateCatalogueItemDto {
 
   @IsOptional()
   @IsString()
+  hsnCode?: string;
+
+  @IsOptional()
+  @IsString()
   category?: string;
 
   @IsOptional()

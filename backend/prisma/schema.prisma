@@ -8,6 +8,10 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // Migrations use a DIRECT (non-pooled) connection — Prisma migrate needs advisory
+  // locks that Neon's PgBouncer pooler does not support (they hang). Runtime queries
+  // still use the pooled DATABASE_URL.
+  directUrl = env("DIRECT_URL")
 }
 
 // ───────────────────────── Enums ─────────────────────────
@@ -75,6 +79,7 @@ model MasterCatalogueItem {
   id                String   @id @default(uuid())
   materialName      String
   sku               String   @unique
+  hsnCode           String? // HSN/SAC tax code — distinct from SKU (see FIELD_REFERENCE.md)
   category          String?
   unit              String?
   standardPackaging String?
@@ -127,9 +132,11 @@ model POLineItem {
   poId         String
   po           PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
   materialName String
-  sku          String?
-  quantity     Int
-  unit         String?
+  sku          String? // supplier item/product code (NOT the HSN code, NOT the quantity)
+  hsnCode      String? // HSN/SAC tax code from the PO (own column — was wrongly under sku)
+  quantity     Int // number of PHYSICAL packages (bags/drums) — one QR each. Not bulk Kg.
+  unit         String? // package type (Bag/Drum/Can) or measure unit if truly bulk
+  weight       Float? // PO-stated weight per package (e.g. 25 for "25 Kg/Bag"); nullable
   batchNumber  String?
   matchType    MatchType     @default(NONE)
 
@@ -152,9 +159,11 @@ model Material {
   po           PurchaseOrder  @relation(fields: [poId], references: [id])
   materialName String
   sku          String?
+  hsnCode      String? // HSN/SAC tax code carried from the PO line (Phase 2 reference)
   supplier     String?
   batchNumber  String?
   unit         String?
+  weight       Float? // PO-stated weight per package, carried from the PO line
   status       MaterialStatus @default(REGISTERED)
 
   receivedWeight Float? // single manual receiving weight (Phase 1 — not gross/net/tare)

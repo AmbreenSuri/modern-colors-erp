@@ -1,10 +1,14 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { IsInt, IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
 
 export class CreateLineItemDto {
   @IsString()
   @MinLength(1)
   materialName!: string;
+
+  @IsOptional()
+  @IsString()
+  hsnCode?: string;
 
   @IsOptional()
   @IsString()
@@ -17,6 +21,11 @@ export class CreateLineItemDto {
   @IsOptional()
   @IsString()
   unit?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  weight?: number;
 
   @IsOptional()
   @IsString()

@@ -6,6 +6,7 @@ export interface QrPayload {
   uniqueId: string;
   materialName: string;
   sku: string | null;
+  hsnCode?: string | null;
   supplier: string | null;
   poNumber: string | null;
   batch: string | null;

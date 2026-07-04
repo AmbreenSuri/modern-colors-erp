@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Min,
@@ -16,6 +17,10 @@ export class ManualLineItemDto {
 
   @IsOptional()
   @IsString()
+  hsnCode?: string;
+
+  @IsOptional()
+  @IsString()
   sku?: string;
 
   @IsInt()
@@ -27,12 +32,17 @@ export class ManualLineItemDto {
   unit?: string;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  weight?: number;
+
+  @IsOptional()
   @IsString()
   batchNumber?: string;
 }
 
-// Manual fallback entry (invariant I7) — used when AI extraction fails or the
-// operator chooses to type the PO by hand.
+// Manual entry (invariant I7) — used when AI extraction fails or the operator
+// chooses to type the PO by hand. Also backs the "Enter PO manually" flow (no file).
 export class ManualEntryDto {
   @IsOptional()
   @IsString()

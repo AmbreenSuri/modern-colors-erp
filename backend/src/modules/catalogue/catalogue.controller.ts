@@ -81,6 +81,20 @@ export class CatalogueController {
     return this.catalogue.importFile(file.buffer, actor.id);
   }
 
+  // Preview a CSV/XLSX before committing — parses + validates, returns rows to
+  // review. No DB writes. Admin only.
+  @Post('import/preview')
+  @Roles(Role.ADMIN)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { files: 1, fileSize: 10 * 1024 * 1024, fields: 5, fieldNameSize: 100 },
+    }),
+  )
+  importPreview(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded (field name "file")');
+    return this.catalogue.previewImport(file.buffer);
+  }
+
   // Edit / delete: Admin only (per PRD §7).
   @Patch(':id')
   @Roles(Role.ADMIN)
