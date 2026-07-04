@@ -35,7 +35,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => onUnauthorized(() => setUser(null)), [])
 
   const login = async (email: string, password: string) => {
-    const res = await api.post<LoginResponse>('/auth/login', { email, password })
+    // Extra retries + a longer timeout: this is the first request from a mobile device
+    // and may hit a cold-started, far-away (US) backend over a high-latency link.
+    const res = await api.post<LoginResponse>(
+      '/auth/login',
+      { email, password },
+      { retries: 3, timeoutMs: 25_000 },
+    )
     tokenStore.set(res.accessToken)
     setUser(res.user)
   }

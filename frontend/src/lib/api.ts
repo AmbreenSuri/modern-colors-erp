@@ -68,46 +68,104 @@ async function parse<T>(res: Response): Promise<T> {
   return data as T
 }
 
+export interface RequestOptions {
+  timeoutMs?: number
+  // Auto-retry ONLY on connection-level failures (network error / timeout) where NO
+  // HTTP response was received — safe for idempotent calls. Never retries on a 4xx/5xx
+  // response. Defaults: GET=2, login opts in to 3, other mutations=0 (no double-submit).
+  retries?: number
+}
+
+const DEFAULT_TIMEOUT = 20_000
+
+// fetch with an abort-based timeout + bounded retries and backoff. This is the key
+// resilience layer for high-latency mobile connections (factory floor on 4G/5G in
+// India → a US-hosted backend) and for waking a cold-started container.
+async function doFetch(path: string, init: RequestInit, opts: RequestOptions = {}): Promise<Response> {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT
+  const retries = opts.retries ?? 0
+  let aborted = false
+  for (let attempt = 0; ; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      return await fetch(`${API_BASE_URL}${path}`, { ...init, signal: controller.signal })
+    } catch (err) {
+      // Only reached when no response arrived (network drop / timeout) — safe to retry.
+      aborted = err instanceof DOMException && err.name === 'AbortError'
+      if (attempt >= retries) break
+      await new Promise((r) => setTimeout(r, 600 * (attempt + 1)))
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  throw new ApiError(
+    aborted
+      ? 'The server took too long to respond. Please check your connection and try again.'
+      : 'Cannot reach the server. Please check your connection and try again.',
+    0,
+    aborted ? 'TIMEOUT' : 'NETWORK',
+  )
+}
+
 export const api = {
-  get: <T>(path: string) =>
-    fetch(`${API_BASE_URL}${path}`, { headers: authHeaders() }).then((r) => parse<T>(r)),
+  get: <T>(path: string, opts?: RequestOptions) =>
+    doFetch(path, { headers: authHeaders() }, { retries: 2, ...opts }).then((r) => parse<T>(r)),
 
-  post: <T>(path: string, body?: unknown) =>
-    fetch(`${API_BASE_URL}${path}`, {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    }).then((r) => parse<T>(r)),
+  post: <T>(path: string, body?: unknown, opts?: RequestOptions) =>
+    doFetch(
+      path,
+      {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      },
+      opts,
+    ).then((r) => parse<T>(r)),
 
-  put: <T>(path: string, body?: unknown) =>
-    fetch(`${API_BASE_URL}${path}`, {
-      method: 'PUT',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    }).then((r) => parse<T>(r)),
+  put: <T>(path: string, body?: unknown, opts?: RequestOptions) =>
+    doFetch(
+      path,
+      {
+        method: 'PUT',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      },
+      opts,
+    ).then((r) => parse<T>(r)),
 
-  patch: <T>(path: string, body?: unknown) =>
-    fetch(`${API_BASE_URL}${path}`, {
-      method: 'PATCH',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    }).then((r) => parse<T>(r)),
+  patch: <T>(path: string, body?: unknown, opts?: RequestOptions) =>
+    doFetch(
+      path,
+      {
+        method: 'PATCH',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      },
+      opts,
+    ).then((r) => parse<T>(r)),
 
-  del: <T>(path: string) =>
-    fetch(`${API_BASE_URL}${path}`, { method: 'DELETE', headers: authHeaders() }).then((r) =>
-      parse<T>(r),
-    ),
+  del: <T>(path: string, opts?: RequestOptions) =>
+    doFetch(path, { method: 'DELETE', headers: authHeaders() }, opts).then((r) => parse<T>(r)),
 
-  postForm: <T>(path: string, form: FormData) =>
-    fetch(`${API_BASE_URL}${path}`, {
-      method: 'POST',
-      headers: authHeaders(), // browser sets multipart boundary
-      body: form,
-    }).then((r) => parse<T>(r)),
+  // Uploads: no auto-retry (would risk a duplicate PO) but a longer timeout for large
+  // phone photos over slow mobile links.
+  postForm: <T>(path: string, form: FormData, opts?: RequestOptions) =>
+    doFetch(
+      path,
+      { method: 'POST', headers: authHeaders(), body: form }, // browser sets multipart boundary
+      { timeoutMs: 60_000, ...opts },
+    ).then((r) => parse<T>(r)),
+
+  // Wake a possibly-cold backend before the user acts (fire-and-forget).
+  warmUp: () =>
+    doFetch('/health', { headers: {} }, { timeoutMs: 25_000, retries: 1 })
+      .then(() => undefined)
+      .catch(() => undefined),
 
   // Open a binary endpoint (PDF) in a new tab with the bearer token.
   openBlob: async (path: string) => {
-    const res = await fetch(`${API_BASE_URL}${path}`, { headers: authHeaders() })
+    const res = await doFetch(path, { headers: authHeaders() }, { timeoutMs: 60_000, retries: 1 })
     if (!res.ok) throw new ApiError(`Download failed (${res.status})`, res.status)
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
@@ -118,7 +176,7 @@ export const api = {
   // Download a binary endpoint to a file (bearer token; blob URLs drop the server
   // filename, so we set it explicitly on the anchor).
   downloadBlob: async (path: string, filename: string) => {
-    const res = await fetch(`${API_BASE_URL}${path}`, { headers: authHeaders() })
+    const res = await doFetch(path, { headers: authHeaders() }, { timeoutMs: 60_000, retries: 1 })
     if (!res.ok) throw new ApiError(`Download failed (${res.status})`, res.status)
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
@@ -134,7 +192,7 @@ export const api = {
   // Fetch a binary endpoint (with the bearer token) as an object URL + content type,
   // for embedding (e.g. the PO document preview). Caller must revoke the URL.
   fetchBlobUrl: async (path: string): Promise<{ url: string; contentType: string }> => {
-    const res = await fetch(`${API_BASE_URL}${path}`, { headers: authHeaders() })
+    const res = await doFetch(path, { headers: authHeaders() }, { timeoutMs: 60_000, retries: 1 })
     if (!res.ok) throw new ApiError(`Load failed (${res.status})`, res.status)
     const blob = await res.blob()
     return { url: URL.createObjectURL(blob), contentType: res.headers.get('content-type') || blob.type }

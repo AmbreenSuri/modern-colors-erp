@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Paintbrush } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
-import { ApiError } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,6 +12,12 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // Warm the backend as soon as the login screen loads so the container is awake by
+  // the time the operator submits (mitigates cold-start login failures on mobile data).
+  useEffect(() => {
+    void api.warmUp()
+  }, [])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
