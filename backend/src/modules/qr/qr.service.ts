@@ -38,47 +38,21 @@ export class QrService {
   }
 
   /**
-   * A4 sheet packed with 3×1.5" labels (2 columns × 7 rows = 14 per page) at
-   * near-zero margins, ready to print on label stock or plain paper.
+   * ONE label per PDF page for a continuous label-roll printer: each page is exactly
+   * 3×1.5" (216×108pt) with a single label filling it edge-to-edge (only the smallest
+   * safe print margin). Page count === number of units, so the printer feeds one
+   * physical sticker per page.
    */
-  async buildLabelSheet(items: LabelInput[]): Promise<Buffer> {
+  async buildLabelRoll(items: LabelInput[]): Promise<Buffer> {
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
     const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-
-    const PAGE_W = 595.28; // A4 portrait
-    const PAGE_H = 841.89;
-    const margin = 14;
-    const gutter = 8;
-    const cols = Math.max(1, Math.floor((PAGE_W - 2 * margin + gutter) / (LABEL_W + gutter)));
-    const rows = Math.max(1, Math.floor((PAGE_H - 2 * margin + gutter) / (LABEL_H + gutter)));
-    const perPage = cols * rows;
-
-    for (let i = 0; i < items.length; i++) {
-      if (i % perPage === 0) doc.addPage([PAGE_W, PAGE_H]);
-      const page = doc.getPages()[doc.getPageCount() - 1];
-      const idx = i % perPage;
-      const col = idx % cols;
-      const row = Math.floor(idx / cols);
-      const x = margin + col * (LABEL_W + gutter);
-      const yTop = PAGE_H - margin - row * (LABEL_H + gutter);
-      const qrPng = await this.pngBuffer(items[i].payload);
-      const img = await doc.embedPng(qrPng);
-      await this.drawLabel(page, x, yTop, items[i].payload, img, font, bold);
+    for (const item of items) {
+      const page = doc.addPage([LABEL_W, LABEL_H]);
+      const img = await doc.embedPng(await this.pngBuffer(item.payload));
+      // yTop = LABEL_H, x = 0, no cut border → the label fills the whole page.
+      await this.drawLabel(page, 0, LABEL_H, item.payload, img, font, bold, false);
     }
-
-    const bytes = await doc.save();
-    return Buffer.from(bytes);
-  }
-
-  /** A single 3×1.5" label as its own one-page PDF (one QR per page — item 12). */
-  async buildSingleLabel(item: LabelInput): Promise<Buffer> {
-    const doc = await PDFDocument.create();
-    const font = await doc.embedFont(StandardFonts.Helvetica);
-    const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-    const page = doc.addPage([LABEL_W, LABEL_H]);
-    const img = await doc.embedPng(await this.pngBuffer(item.payload));
-    await this.drawLabel(page, 0, LABEL_H, item.payload, img, font, bold, false);
     const bytes = await doc.save();
     return Buffer.from(bytes);
   }

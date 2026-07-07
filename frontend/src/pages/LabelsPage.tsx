@@ -91,7 +91,7 @@ function LabelsForPo({ poId }: { poId: string }) {
         </p>
         <div className="flex flex-wrap gap-2">
           <Button onClick={downloadPdf} className="gap-1.5" disabled={!units.length || busy !== null}>
-            <Printer className="h-4 w-4" /> {busy === 'pdf' ? 'Preparing…' : 'Label sheet (PDF)'}
+            <Printer className="h-4 w-4" /> {busy === 'pdf' ? 'Preparing…' : 'Label roll (PDF)'}
           </Button>
           <Button variant="outline" onClick={downloadZip} className="gap-1.5" disabled={!units.length || busy !== null}>
             <ImageDown className="h-4 w-4" /> {busy === 'zip' ? 'Zipping…' : 'Individual PNGs (ZIP)'}
@@ -99,7 +99,8 @@ function LabelsForPo({ poId }: { poId: string }) {
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        Labels are 3×1.5" stickers. The ZIP has one PNG per unit, named by unique ID (e.g. MC-000001.png).
+        The PDF has one 3×1.5" label per page ({units.length} page{units.length === 1 ? '' : 's'}), ready for
+        the label-roll printer. The ZIP has one PNG per unit, named by unique ID (e.g. MC-000001.png).
       </p>
 
       {units.length === 0 ? (

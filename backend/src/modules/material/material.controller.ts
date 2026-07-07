@@ -73,11 +73,12 @@ export class MaterialController {
     });
   }
 
-  // Printable QR label sheet (PDF) — 3×1.5" stickers, all units of a PO (item 11).
+  // Printable QR labels (PDF) — ONE 3×1.5" label per page for a label-roll printer,
+  // so page count === unit count. All units of an invoice.
   @Get('purchase-orders/:poId/labels.pdf')
   async labels(@Param('poId') poId: string): Promise<StreamableFile> {
     const items = await this.labelItems(poId);
-    const pdf = await this.qr.buildLabelSheet(items);
+    const pdf = await this.qr.buildLabelRoll(items);
     const safePoId = poId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
     return new StreamableFile(pdf, {
       type: 'application/pdf',
