@@ -10,14 +10,53 @@ interface CameraQrScannerProps {
 
 const REGION_ID = 'qr-camera-region'
 
+const SCAN_CONFIG = {
+  fps: 15,
+  qrbox: (w: number, h: number) => {
+    const size = Math.max(200, Math.floor(Math.min(w, h) * 0.8))
+    return { width: size, height: size }
+  },
+  aspectRatio: 1,
+  // Native BarcodeDetector when supported (Android Chrome) — faster + more reliable.
+  experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+}
+
+const isPermissionError = (e: unknown) =>
+  (e instanceof DOMException && e.name === 'NotAllowedError') ||
+  (e instanceof Error && /permission|denied|notallowed/i.test(e.message))
+
+// Fully stop + clear a scanner instance so its DOM is clean before we build a fresh
+// one. A FRESH instance per attempt avoids html5-qrcode's "already under transition"
+// error, which is thrown if start() is called again on an instance whose previous
+// start() failed mid-transition.
+async function disposeScanner(s: Html5Qrcode | null) {
+  if (!s) return
+  try {
+    const st = s.getState?.()
+    if (st === Html5QrcodeScannerState.SCANNING || st === Html5QrcodeScannerState.PAUSED) {
+      try {
+        await s.stop()
+      } catch {
+        /* noop */
+      }
+    }
+    try {
+      s.clear()
+    } catch {
+      /* noop */
+    }
+  } catch {
+    /* noop */
+  }
+}
+
 /**
  * Live rear-camera QR scanner (mobile-first) built on html5-qrcode.
  *
- * The camera is started by an explicit TAP, not automatically: many mobile
- * browsers (notably iOS WebKit and in-app browsers) refuse getUserMedia unless
- * it is initiated from a user gesture, which is why an auto-start showed
- * "No camera available". Decodes continuously, de-dupes repeat reads, and falls
- * back gracefully (manual entry always remains on the page).
+ * Started by an explicit TAP (mobile browsers block getUserMedia without a user
+ * gesture). Each start attempt uses a fresh Html5Qrcode instance and tries a
+ * sequence of cameras (rear → any → each enumerated device). Manual entry always
+ * remains available on the page.
  */
 export function CameraQrScanner({ onResult, paused = false }: CameraQrScannerProps) {
   const scannerRef = useRef<Html5Qrcode | null>(null)
@@ -29,50 +68,17 @@ export function CameraQrScanner({ onResult, paused = false }: CameraQrScannerPro
   const pausedRef = useRef(paused)
   pausedRef.current = paused
 
-  // Create the scanner instance once (the region element already exists in the DOM).
   useEffect(() => {
     cancelledRef.current = false
-    try {
-      scannerRef.current = new Html5Qrcode(REGION_ID, { verbose: false })
-    } catch {
-      setStatus('error')
-      setError('Scanner could not initialise. Use manual entry below.')
-    }
     return () => {
       cancelledRef.current = true
-      const s = scannerRef.current
+      void disposeScanner(scannerRef.current)
       scannerRef.current = null
-      if (!s) return
-      // Only stop a running scanner (stop() throws otherwise). Guarded so a
-      // double-mount can never crash the page.
-      try {
-        const state = s.getState?.()
-        if (state === Html5QrcodeScannerState.SCANNING || state === Html5QrcodeScannerState.PAUSED) {
-          s.stop()
-            .then(() => {
-              try {
-                s.clear()
-              } catch {
-                /* noop */
-              }
-            })
-            .catch(() => {})
-        } else {
-          try {
-            s.clear()
-          } catch {
-            /* noop */
-          }
-        }
-      } catch {
-        /* noop */
-      }
     }
   }, [])
 
   const startCamera = useCallback(async () => {
-    const scanner = scannerRef.current
-    if (!scanner || startingRef.current) return
+    if (startingRef.current) return
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
       setStatus('error')
       setError('Camera needs a secure (HTTPS) connection. Use manual entry below.')
@@ -90,77 +96,68 @@ export function CameraQrScanner({ onResult, paused = false }: CameraQrScannerPro
       onResult(text)
     }
 
-    const config = {
-      fps: 15,
-      qrbox: (w: number, h: number) => {
-        const size = Math.max(200, Math.floor(Math.min(w, h) * 0.8))
-        return { width: size, height: size }
-      },
-      aspectRatio: 1,
-      // Native BarcodeDetector when supported (Android Chrome) — faster + more reliable.
-      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-    }
-
-    const isPermissionError = (e: unknown) =>
-      (e instanceof DOMException && e.name === 'NotAllowedError') ||
-      (e instanceof Error && /permission|denied|notallowed/i.test(e.message))
-
-    // Continuous autofocus applied AFTER start (best-effort) — never in the
-    // getUserMedia constraints, where an unsupported focusMode makes start() fail.
-    const applyAutofocus = () => {
-      scanner
-        .applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] } as unknown as MediaTrackConstraints)
-        .catch(() => {})
-    }
-    const onOk = () => {
-      if (!cancelledRef.current) {
-        setStatus('running')
-        applyAutofocus()
-      }
-    }
-
-    // Progressive attempts — high-res rear → plain rear → any camera. All "ideal"
-    // so they degrade instead of failing on cameras that can't meet them.
-    const attempts: MediaTrackConstraints[] = [
-      { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      { facingMode: { ideal: 'environment' } },
-      {},
-    ]
     let lastErr: unknown
-    try {
-      for (const cam of attempts) {
-        try {
-          await scanner.start(cam, config, onDecode, () => {})
-          onOk()
-          return
-        } catch (e) {
-          lastErr = e
-          if (isPermissionError(e)) break
-        }
+
+    // One start() call per FRESH instance. Returns true on success.
+    const tryStart = async (target: MediaTrackConstraints | string): Promise<boolean> => {
+      await disposeScanner(scannerRef.current)
+      if (cancelledRef.current) return false
+      let scanner: Html5Qrcode
+      try {
+        scanner = new Html5Qrcode(REGION_ID, { verbose: false })
+      } catch (e) {
+        lastErr = e
+        return false
       }
+      scannerRef.current = scanner
+      try {
+        await scanner.start(target, SCAN_CONFIG, onDecode, () => {})
+        if (!cancelledRef.current) {
+          setStatus('running')
+          // Best-effort continuous autofocus — never allowed to break the running scanner.
+          scanner
+            .applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] } as unknown as MediaTrackConstraints)
+            .catch(() => {})
+        }
+        return true
+      } catch (e) {
+        lastErr = e
+        return false
+      }
+    }
+
+    try {
+      // Rear camera, high-res first, then a plain rear request. "ideal" constraints
+      // degrade gracefully instead of failing.
+      const targets: MediaTrackConstraints[] = [
+        { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        { facingMode: { ideal: 'environment' } },
+        {},
+      ]
+      for (const t of targets) {
+        if (await tryStart(t)) return
+        if (isPermissionError(lastErr)) break
+      }
+
       // Last resort: enumerate devices and try each (rear-labelled first).
       if (!isPermissionError(lastErr)) {
+        let cams: CameraDevice[] = []
         try {
-          const cams: CameraDevice[] = await Html5Qrcode.getCameras()
-          const ordered = cams
-            .slice()
-            .sort(
-              (a, b) =>
-                Number(/back|rear|environment/i.test(b.label)) -
-                Number(/back|rear|environment/i.test(a.label)),
-            )
-          for (const c of ordered) {
-            try {
-              await scanner.start(c.id, config, onDecode, () => {})
-              onOk()
-              return
-            } catch (e) {
-              lastErr = e
-              if (isPermissionError(e)) break
-            }
-          }
+          cams = await Html5Qrcode.getCameras()
         } catch (e) {
           lastErr = e
+        }
+        const ids = cams
+          .slice()
+          .sort(
+            (a, b) =>
+              Number(/back|rear|environment/i.test(b.label)) -
+              Number(/back|rear|environment/i.test(a.label)),
+          )
+          .map((c) => c.id)
+        for (const id of ids) {
+          if (await tryStart(id)) return
+          if (isPermissionError(lastErr)) break
         }
       }
 
@@ -177,6 +174,13 @@ export function CameraQrScanner({ onResult, paused = false }: CameraQrScannerPro
       startingRef.current = false
     }
   }, [onResult])
+
+  const retry = useCallback(() => {
+    setError(null)
+    setStatus('idle')
+    void disposeScanner(scannerRef.current)
+    scannerRef.current = null
+  }, [])
 
   return (
     <div className="space-y-2">
@@ -206,10 +210,7 @@ export function CameraQrScanner({ onResult, paused = false }: CameraQrScannerPro
             <span>{error}</span>
             <button
               type="button"
-              onClick={() => {
-                setStatus('idle')
-                setError(null)
-              }}
+              onClick={retry}
               className="inline-flex items-center gap-1.5 rounded-md border border-white/30 px-3 py-1.5 text-white"
             >
               <RefreshCw className="h-4 w-4" /> Try again
