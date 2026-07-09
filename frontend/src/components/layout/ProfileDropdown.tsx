@@ -2,12 +2,7 @@ import { LogOut, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/auth'
-
-const roleLabel: Record<string, string> = {
-  ADMIN: 'Administrator',
-  SUPERVISOR: 'Supervisor',
-  OPERATOR: 'Operator',
-}
+import { roleLabel } from '@/lib/roles'
 
 export function ProfileDropdown({ className }: { className?: string }) {
   const { user, logout } = useAuth()
@@ -27,7 +22,7 @@ export function ProfileDropdown({ className }: { className?: string }) {
         <div className="hidden text-left md:block">
           <div className="text-sm font-medium leading-none">{name}</div>
           <div className="text-xs text-muted-foreground">
-            {user ? roleLabel[user.role] : ''}
+            {user ? roleLabel(user) : ''}
           </div>
         </div>
       </Button>

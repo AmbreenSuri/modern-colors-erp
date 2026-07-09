@@ -1,12 +1,14 @@
 // API domain types mirroring the backend responses.
 
-export type Role = 'ADMIN' | 'SUPERVISOR' | 'OPERATOR'
+export type Role = 'ADMIN' | 'SUPERVISOR' | 'OPERATOR' | 'OVERSIGHT' | 'PRODUCTION_HEAD'
+export type Department = 'PU' | 'ENAMEL' | 'POWDER'
 
 export interface AuthUser {
   id: string
   email: string
   name: string
   role: Role
+  department: Department | null // Phase 2 — set only for PRODUCTION_HEAD
 }
 
 export interface LoginResponse {

@@ -15,13 +15,17 @@ import { useAuth } from '@/lib/auth'
 import type { Role } from '@/types/api'
 
 // Phase 1 navigation. `roles` omitted = visible to every authenticated user.
+// Phase 1 screens are scoped to the Phase 1 roles (Store=ADMIN, Operator, Supervisor).
+// The new Phase 2 roles (OVERSIGHT / PRODUCTION_HEAD) get their own nav in later steps.
+const PHASE1_ROLES: Role[] = ['ADMIN', 'OPERATOR', 'SUPERVISOR']
+
 const navItems: { to: string; label: string; icon: typeof LayoutDashboard; roles?: Role[] }[] = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/purchase-orders', label: 'Invoice Upload', icon: FileUp },
-  { to: '/review', label: 'Review & Confirm', icon: ClipboardCheck },
-  { to: '/labels', label: 'QR Labels', icon: QrCode },
-  { to: '/receiving', label: 'Scan & Weigh', icon: ScanLine },
-  { to: '/catalogue', label: 'Master Catalogue', icon: BookMarked },
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, roles: PHASE1_ROLES },
+  { to: '/purchase-orders', label: 'Invoice Upload', icon: FileUp, roles: PHASE1_ROLES },
+  { to: '/review', label: 'Review & Confirm', icon: ClipboardCheck, roles: PHASE1_ROLES },
+  { to: '/labels', label: 'QR Labels', icon: QrCode, roles: PHASE1_ROLES },
+  { to: '/receiving', label: 'Scan & Weigh', icon: ScanLine, roles: PHASE1_ROLES },
+  { to: '/catalogue', label: 'Master Catalogue', icon: BookMarked, roles: PHASE1_ROLES },
   { to: '/audit', label: 'Audit Log', icon: ScrollText, roles: ['ADMIN', 'SUPERVISOR'] },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, roles: ['ADMIN'] },
 ]

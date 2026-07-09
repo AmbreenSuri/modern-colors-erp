@@ -38,6 +38,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: user.email,
       role: user.role,
       name: user.name,
+      department: user.department, // Phase 2 — drives server-side department isolation
     };
   }
 }

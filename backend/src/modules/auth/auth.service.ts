@@ -44,6 +44,7 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
+        department: user.department, // Phase 2 — so the client can scope its own UI
       },
     };
   }
