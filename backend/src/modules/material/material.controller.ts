@@ -98,6 +98,34 @@ export class MaterialController {
     });
   }
 
+  // CSV of label data (incl. the exact QR payload string) — for label-design
+  // software like BarTender / NiceLabel to merge onto a .btw/.lbl template.
+  @Get('purchase-orders/:poId/labels.csv')
+  async labelsCsv(@Param('poId') poId: string): Promise<StreamableFile> {
+    const items = await this.labelItems(poId);
+    const cell = (v: unknown) => {
+      const s = v == null ? '' : String(v);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = [
+      'S.No', 'Unique ID', 'Material Name', 'SKU', 'HSN Code', 'Supplier', 'Invoice No', 'Date', 'QR Data',
+    ];
+    const rows = items.map((it, i) => {
+      const p = it.payload;
+      return [
+        i + 1, p.uniqueId, p.materialName, p.sku ?? '', p.hsnCode ?? '', p.supplier ?? '',
+        p.poNumber ?? '', new Date(p.date).toISOString().slice(0, 10), JSON.stringify(p),
+      ].map(cell).join(',');
+    });
+    // Prepend a BOM so Excel opens UTF-8 correctly; CRLF line endings.
+    const csv = '﻿' + [header.join(','), ...rows].join('\r\n');
+    const safePoId = poId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
+    return new StreamableFile(Buffer.from(csv, 'utf8'), {
+      type: 'text/csv; charset=utf-8',
+      disposition: `attachment; filename="labels-${safePoId}.csv"`,
+    });
+  }
+
   // ── helpers ──
   private async labelItems(poId: string): Promise<LabelInput[]> {
     const materials = await this.materials.forPurchaseOrder(poId);

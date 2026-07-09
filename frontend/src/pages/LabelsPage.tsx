@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { Printer, QrCode, ImageDown } from 'lucide-react'
+import { Printer, QrCode, ImageDown, FileSpreadsheet } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Paginated, PurchaseOrder } from '@/types/api'
 import { Button } from '@/components/ui/button'
@@ -54,7 +54,7 @@ interface LabelUnit {
 
 function LabelsForPo({ poId }: { poId: string }) {
   const [units, setUnits] = useState<LabelUnit[]>([])
-  const [busy, setBusy] = useState<null | 'pdf' | 'zip'>(null)
+  const [busy, setBusy] = useState<null | 'pdf' | 'zip' | 'csv'>(null)
   useEffect(() => {
     api
       .get<LabelUnit[]>(`/purchase-orders/${poId}/units`)
@@ -82,6 +82,16 @@ function LabelsForPo({ poId }: { poId: string }) {
       setBusy(null)
     }
   }
+  const downloadCsv = async () => {
+    setBusy('csv')
+    try {
+      await api.downloadBlob(`/purchase-orders/${poId}/labels.csv`, `labels-${poId}.csv`)
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not download CSV' })
+    } finally {
+      setBusy(null)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -96,11 +106,15 @@ function LabelsForPo({ poId }: { poId: string }) {
           <Button variant="outline" onClick={downloadZip} className="gap-1.5" disabled={!units.length || busy !== null}>
             <ImageDown className="h-4 w-4" /> {busy === 'zip' ? 'Zipping…' : 'Individual PNGs (ZIP)'}
           </Button>
+          <Button variant="outline" onClick={downloadCsv} className="gap-1.5" disabled={!units.length || busy !== null}>
+            <FileSpreadsheet className="h-4 w-4" /> {busy === 'csv' ? 'Exporting…' : 'Label data (CSV)'}
+          </Button>
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        The PDF has one 3×1.5" label per page ({units.length} page{units.length === 1 ? '' : 's'}), ready for
-        the label-roll printer. The ZIP has one PNG per unit, named by unique ID (e.g. MC-000001.png).
+        <span className="font-medium">PDF</span> — one 3×1.5" label per page ({units.length} page{units.length === 1 ? '' : 's'}), ready for the label-roll printer.{' '}
+        <span className="font-medium">ZIP</span> — one PNG per unit (MC-000001.png…).{' '}
+        <span className="font-medium">CSV</span> — label data for BarTender / NiceLabel to merge onto your own .btw template.
       </p>
 
       {units.length === 0 ? (

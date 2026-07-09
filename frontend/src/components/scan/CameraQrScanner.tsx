@@ -46,17 +46,32 @@ export function CameraQrScanner({ onResult, paused = false }: CameraQrScannerPro
     }
 
     const config = {
-      fps: 10,
+      fps: 15,
       qrbox: (w: number, h: number) => {
-        const size = Math.floor(Math.min(w, h) * 0.7)
+        // More forgiving scan region (80% of the short side, min 200px) so a
+        // slightly off-centre code still lands inside it.
+        const size = Math.max(200, Math.floor(Math.min(w, h) * 0.8))
         return { width: size, height: size }
       },
       aspectRatio: 1,
+      // Use the browser's native BarcodeDetector when available (Android Chrome) —
+      // far faster and more reliable than the JS decoder, which fixes the
+      // intermittent "doesn't pick up the code" misses.
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
     }
+
+    // Rear camera at a high resolution with continuous autofocus, so small or
+    // slightly-blurry printed QR codes have enough detail to decode.
+    const cameraConstraints = {
+      facingMode: 'environment',
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      advanced: [{ focusMode: 'continuous' }],
+    } as unknown as MediaTrackConstraints
 
     const start = async () => {
       try {
-        await scanner.start({ facingMode: 'environment' }, config, onDecode, () => {})
+        await scanner.start(cameraConstraints, config, onDecode, () => {})
         if (!cancelled) setStatus('running')
       } catch {
         // Fallback: enumerate cameras and pick a rear one explicitly.
