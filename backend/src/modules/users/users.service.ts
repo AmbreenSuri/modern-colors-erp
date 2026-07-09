@@ -20,6 +20,7 @@ const safeSelect = {
   email: true,
   name: true,
   role: true,
+  department: true, // Phase 2 — null for Phase 1 users
   active: true,
   createdAt: true,
   updatedAt: true,

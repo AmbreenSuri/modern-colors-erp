@@ -6,8 +6,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   // Migrations use a DIRECT (non-pooled) connection — Prisma migrate needs advisory
   // locks that Neon's PgBouncer pooler does not support (they hang). Runtime queries
   // still use the pooled DATABASE_URL.
@@ -17,9 +17,33 @@ datasource db {
 // ───────────────────────── Enums ─────────────────────────
 
 enum Role {
-  ADMIN
+  ADMIN // Phase 1 full access; in Phase 2 this login is the "Store" (label only)
   SUPERVISOR
   OPERATOR
+  OVERSIGHT // Phase 2 — factory-wide VIEW-ONLY "Admin" (no actions)
+  PRODUCTION_HEAD // Phase 2 — PU/Enamel/Powder head, scoped by `department`
+}
+
+// Phase 2 — production departments. A PRODUCTION_HEAD is scoped to exactly one.
+enum Department {
+  PU
+  ENAMEL
+  POWDER
+}
+
+// Phase 2 — production request lifecycle (per-material request → Store review).
+enum RequestStatus {
+  PENDING // raised by a head, awaiting Store
+  APPROVED // Store accepted the full requested amount
+  PARTIAL // Store accepted a lower amount than requested
+  REJECTED // Store rejected (with a reason)
+}
+
+// Phase 2 — stock movement type. Every unit scan offers all three (Override 3).
+enum StockTxnType {
+  ADD // material coming back INTO stock (from a department)
+  DEDUCT // material going OUT (for a department)
+  DISCARD // wasted/damaged, not tied to a department
 }
 
 // PO-level lifecycle (the document). See ARCHITECTURE.md §6 status note.
@@ -55,20 +79,24 @@ enum MatchType {
 // ───────────────────────── Users / Auth ─────────────────────────
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
+  id           String      @id @default(uuid())
+  email        String      @unique
   passwordHash String
   name         String
-  role         Role     @default(OPERATOR)
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  role         Role        @default(OPERATOR)
+  department   Department? // Phase 2 — set only for PRODUCTION_HEAD users
+  active       Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
-  uploadedPOs     PurchaseOrder[] @relation("UploadedBy")
-  confirmedPOs    PurchaseOrder[] @relation("ConfirmedBy")
-  weighedUnits    Material[]      @relation("WeighedBy")
-  auditEntries    AuditLog[]      @relation("ActorAudit")
-  settingsUpdates Setting[]       @relation("SettingUpdatedBy")
+  uploadedPOs        PurchaseOrder[]     @relation("UploadedBy")
+  confirmedPOs       PurchaseOrder[]     @relation("ConfirmedBy")
+  weighedUnits       Material[]          @relation("WeighedBy")
+  auditEntries       AuditLog[]          @relation("ActorAudit")
+  settingsUpdates    Setting[]           @relation("SettingUpdatedBy")
+  productionRequests ProductionRequest[] @relation("RequestedBy")
+  reviewedRequests   ProductionRequest[] @relation("ReviewedBy")
+  stockTransactions  StockTransaction[]  @relation("TxnActor")
 
   @@index([role])
 }
@@ -173,10 +201,13 @@ model Material {
   arrivedAt      DateTime?
   scannedAt      DateTime?
 
+  balanceKg Float? // Phase 2 — live remaining stock (KG) for this unit. Init = receivedWeight.
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  qrCode QrCode?
+  qrCode       QrCode?
+  transactions StockTransaction[] // Phase 2 — append-only stock movements for this unit
 
   @@index([poId])
   @@index([status])
@@ -233,5 +264,63 @@ model AuditLog {
 
   @@index([entityType, entityId])
   @@index([actorId])
+  @@index([createdAt])
+}
+
+// ───────────────────────── Phase 2: Production Requests ─────────────────────────
+
+// A per-material request raised by a production head (Override 2 — one material +
+// quantity, NOT a multi-material slip). Store reviews → approve / partial / reject.
+model ProductionRequest {
+  id              String        @id @default(uuid())
+  department      Department // forced to the requester's own department (server-side)
+  requestedById   String
+  requestedBy     User          @relation("RequestedBy", fields: [requestedById], references: [id])
+  materialName    String // the requested material (picked from Master Catalogue)
+  sku             String?
+  catalogueItemId String? // optional link to the Master Catalogue item
+  requestedKg     Float
+  status          RequestStatus @default(PENDING)
+  approvedKg      Float? // = requestedKg (full accept) or a lower amount (partial)
+  rejectionReason String?
+  reviewedById    String? // Store user who actioned the request
+  reviewedBy      User?         @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt      DateTime?
+  issuedKg        Float         @default(0) // running total actually issued via verified scans
+  fulfilledAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  transactions StockTransaction[]
+
+  @@index([department])
+  @@index([status])
+  @@index([requestedById])
+}
+
+// ───────────────────────── Phase 2: Stock Transactions (APPEND-ONLY) ─────────────────────────
+
+// Immutable ledger — one row per Add/Deduct/Discard on a physical unit. Never
+// updated/deleted (extends the I4 audit pattern). Material.balanceKg is updated in
+// the SAME DB transaction so the running balance and log never drift.
+model StockTransaction {
+  id           String             @id @default(uuid())
+  materialId   String // the physical unit that was scanned
+  material     Material           @relation(fields: [materialId], references: [id])
+  type         StockTxnType
+  quantityKg   Float // always > 0
+  department   Department? // required for ADD (from) & DEDUCT (for); null for DISCARD
+  requestId    String? // linked ProductionRequest when request-driven
+  request      ProductionRequest? @relation(fields: [requestId], references: [id])
+  actorId      String // Store user (the sole scanner/issuer)
+  actor        User               @relation("TxnActor", fields: [actorId], references: [id])
+  balanceAfter Float // unit balance snapshot AFTER this txn (reconcile/audit)
+  note         String?
+  createdAt    DateTime           @default(now())
+
+  @@index([materialId])
+  @@index([type])
+  @@index([department])
+  @@index([requestId])
   @@index([createdAt])
 }
