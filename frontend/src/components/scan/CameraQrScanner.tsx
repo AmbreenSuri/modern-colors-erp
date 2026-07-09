@@ -60,38 +60,80 @@ export function CameraQrScanner({ onResult, paused = false }: CameraQrScannerPro
       experimentalFeatures: { useBarCodeDetectorIfSupported: true },
     }
 
-    // Rear camera at a high resolution with continuous autofocus, so small or
-    // slightly-blurry printed QR codes have enough detail to decode.
-    const cameraConstraints = {
-      facingMode: 'environment',
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
-      advanced: [{ focusMode: 'continuous' }],
-    } as unknown as MediaTrackConstraints
+    const isPermissionError = (e: unknown) =>
+      (e instanceof DOMException && e.name === 'NotAllowedError') ||
+      (e instanceof Error && /permission|denied|notallowed/i.test(e.message))
+
+    // Continuous autofocus is applied AFTER the camera is running, as a best-effort
+    // — never inside getUserMedia's constraints, where an unsupported focusMode can
+    // make start() fail and leave the camera "unavailable".
+    const applyAutofocus = () => {
+      scanner
+        .applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] } as unknown as MediaTrackConstraints)
+        .catch(() => {})
+    }
 
     const start = async () => {
-      try {
-        await scanner.start(cameraConstraints, config, onDecode, () => {})
-        if (!cancelled) setStatus('running')
-      } catch {
-        // Fallback: enumerate cameras and pick a rear one explicitly.
+      // Camera needs a secure context (HTTPS, or localhost) + the mediaDevices API.
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        setStatus('error')
+        setError('Camera needs a secure (HTTPS) connection. Use manual entry below.')
+        return
+      }
+
+      // Progressive attempts — high-res rear, then a plain rear request. Only "ideal"
+      // constraints so they degrade gracefully instead of failing.
+      const attempts: MediaTrackConstraints[] = [
+        { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        { facingMode: { ideal: 'environment' } },
+      ]
+      let lastErr: unknown
+      for (const cam of attempts) {
         try {
-          const cams: CameraDevice[] = await Html5Qrcode.getCameras()
-          if (!cams.length) throw new Error('No camera found')
-          const rear =
-            cams.find((c) => /back|rear|environment/i.test(c.label)) ?? cams[cams.length - 1]
-          await scanner.start(rear.id, config, onDecode, () => {})
-          if (!cancelled) setStatus('running')
-        } catch (err2) {
-          if (cancelled) return
-          setStatus('error')
-          setError(
-            err2 instanceof Error && /permission|denied|NotAllowed/i.test(err2.message)
-              ? 'Camera permission denied. Allow camera access, or use manual entry below.'
-              : 'No camera available. Use manual entry below.',
-          )
+          await scanner.start(cam, config, onDecode, () => {})
+          if (!cancelled) {
+            setStatus('running')
+            applyAutofocus()
+          }
+          return
+        } catch (e) {
+          lastErr = e
+          if (isPermissionError(e)) break // no point trying other cameras
         }
       }
+
+      // Last resort: enumerate devices and try each (rear-labelled first).
+      if (!isPermissionError(lastErr)) {
+        try {
+          const cams: CameraDevice[] = await Html5Qrcode.getCameras()
+          const ordered = cams
+            .slice()
+            .sort((a, b) => Number(/back|rear|environment/i.test(b.label)) - Number(/back|rear|environment/i.test(a.label)))
+          for (const c of ordered) {
+            try {
+              await scanner.start(c.id, config, onDecode, () => {})
+              if (!cancelled) {
+                setStatus('running')
+                applyAutofocus()
+              }
+              return
+            } catch (e) {
+              lastErr = e
+              if (isPermissionError(e)) break
+            }
+          }
+        } catch (e) {
+          lastErr = e
+        }
+      }
+
+      if (cancelled) return
+      setStatus('error')
+      setError(
+        isPermissionError(lastErr)
+          ? 'Camera permission denied. Allow camera access in your browser, then reload — or use manual entry below.'
+          : 'No camera available on this device. Use manual entry below.',
+      )
     }
     void start()
 
