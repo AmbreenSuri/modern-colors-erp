@@ -9,12 +9,37 @@ import {
   ownDepartment,
 } from '../../common/auth/department-scope';
 import { CreateProductionRequestDto } from './dto/create-production-request.dto';
+import { ReviewRequestItemDto } from './dto/review-request-item.dto';
 
 const requestInclude = {
   requestedBy: { select: { id: true, name: true, department: true } },
   reviewedBy: { select: { id: true, name: true } },
   items: { orderBy: { createdAt: 'asc' } },
 } satisfies Prisma.ProductionRequestInclude;
+
+/**
+ * Derive a request's OVERALL status from its line statuses:
+ *  - no lines reviewed              → PENDING
+ *  - some reviewed, some pending     → IN_PROGRESS
+ *  - all reviewed & all APPROVED     → APPROVED
+ *  - all reviewed & all REJECTED     → REJECTED
+ *  - all reviewed, otherwise (mix)   → PARTIAL
+ */
+export function computeParentStatus(items: { status: RequestStatus }[]): RequestStatus {
+  if (items.length === 0) return RequestStatus.PENDING;
+  const reviewed = items.filter((i) => i.status !== RequestStatus.PENDING);
+  if (reviewed.length === 0) return RequestStatus.PENDING;
+  if (reviewed.length < items.length) return RequestStatus.IN_PROGRESS;
+  if (items.every((i) => i.status === RequestStatus.APPROVED)) return RequestStatus.APPROVED;
+  if (items.every((i) => i.status === RequestStatus.REJECTED)) return RequestStatus.REJECTED;
+  return RequestStatus.PARTIAL;
+}
+
+const AUDIT_ACTION: Record<ReviewRequestItemDto['action'], string> = {
+  APPROVE: 'REQUEST_ITEM_APPROVED',
+  PARTIAL: 'REQUEST_ITEM_PARTIAL',
+  REJECT: 'REQUEST_ITEM_REJECTED',
+};
 
 const emptyByStatus = (): Record<RequestStatus, number> => ({
   PENDING: 0,
@@ -154,5 +179,77 @@ export class ProductionRequestService {
         totalIssuedKg: itemSum._sum.issuedKg ?? 0,
       },
     };
+  }
+
+  /**
+   * Store reviews ONE line — accept (full), partial (lower KG) or reject (with reason).
+   * The line is updated and the parent's overall status is recomputed atomically. A line
+   * that has already been (partly) issued cannot be re-decided.
+   */
+  async reviewItem(user: AuthUser, reqId: string, itemId: string, dto: ReviewRequestItemDto) {
+    const req = await this.prisma.productionRequest.findUnique({
+      where: { id: reqId },
+      include: { items: true },
+    });
+    if (!req) throw new NotFoundException('Request not found');
+    assertDepartmentAccess(user, req.department); // Store (ADMIN) passes; defense in depth
+
+    const item = req.items.find((i) => i.id === itemId);
+    if (!item) throw new NotFoundException('Request line not found');
+    if (item.issuedKg > 0) {
+      throw new BadRequestException('This line has already been issued and cannot be re-decided.');
+    }
+
+    let data: Prisma.ProductionRequestItemUpdateInput;
+    if (dto.action === 'APPROVE') {
+      data = {
+        status: RequestStatus.APPROVED,
+        approvedKg: item.requestedKg,
+        rejectionReason: null,
+        reviewedAt: new Date(),
+      };
+    } else if (dto.action === 'PARTIAL') {
+      const kg = dto.approvedKg;
+      if (kg == null || !(kg > 0) || !(kg < item.requestedKg)) {
+        throw new BadRequestException(
+          `Partial quantity must be greater than 0 and less than the requested ${item.requestedKg} kg.`,
+        );
+      }
+      data = { status: RequestStatus.PARTIAL, approvedKg: kg, rejectionReason: null, reviewedAt: new Date() };
+    } else {
+      const reason = dto.reason?.trim();
+      if (!reason) throw new BadRequestException('A rejection reason is required.');
+      data = { status: RequestStatus.REJECTED, approvedKg: null, rejectionReason: reason, reviewedAt: new Date() };
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.productionRequestItem.update({ where: { id: itemId }, data });
+      const items = await tx.productionRequestItem.findMany({
+        where: { requestId: reqId },
+        select: { status: true },
+      });
+      const parentStatus = computeParentStatus(items);
+      await tx.productionRequest.update({
+        where: { id: reqId },
+        data: { status: parentStatus, reviewedById: user.id, reviewedAt: new Date() },
+      });
+      await this.audit.log(
+        {
+          entityType: 'ProductionRequestItem',
+          entityId: itemId,
+          action: AUDIT_ACTION[dto.action],
+          actorId: user.id,
+          before: { status: item.status, approvedKg: item.approvedKg },
+          after: {
+            requestId: reqId,
+            status: data.status as string,
+            approvedKg: (data.approvedKg as number | null) ?? null,
+            rejectionReason: (data.rejectionReason as string | null) ?? null,
+          },
+        },
+        tx,
+      );
+      return tx.productionRequest.findUnique({ where: { id: reqId }, include: requestInclude });
+    });
   }
 }

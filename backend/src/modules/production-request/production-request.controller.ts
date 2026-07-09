@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { RequestStatus, Role } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -6,6 +6,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { ProductionRequestService } from './production-request.service';
 import { CreateProductionRequestDto } from './dto/create-production-request.dto';
+import { ReviewRequestItemDto } from './dto/review-request-item.dto';
 
 // Read roles: a head (scoped to its own dept), the Store, and the view-only Admin.
 const READ_ROLES = [Role.PRODUCTION_HEAD, Role.ADMIN, Role.OVERSIGHT] as const;
@@ -48,5 +49,17 @@ export class ProductionRequestController {
   @Roles(...READ_ROLES)
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.requests.findOne(user, id);
+  }
+
+  // Store reviews a single request line — Accept / Partial / Reject. Store only.
+  @Patch(':reqId/items/:itemId/review')
+  @Roles(Role.ADMIN)
+  review(
+    @CurrentUser() user: AuthUser,
+    @Param('reqId') reqId: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: ReviewRequestItemDto,
+  ) {
+    return this.requests.reviewItem(user, reqId, itemId, dto);
   }
 }

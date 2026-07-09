@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { PackagePlus, Send, Search, X, ClipboardList, Plus, Trash2 } from 'lucide-react'
+import { PackagePlus, Send, Search, X, ClipboardList, Plus, Trash2, Check } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import type {
@@ -31,9 +31,12 @@ export function StatusBadge({ status }: { status: RequestStatus }) {
   return <span className={`inline-block whitespace-nowrap rounded border px-2 py-0.5 text-xs ${s.cls}`}>{s.label}</span>
 }
 
+export type ReviewBody = { action: 'APPROVE' | 'PARTIAL' | 'REJECT'; approvedKg?: number; reason?: string }
+
 export function RequestsPage() {
   const { user } = useAuth()
   const isHead = user?.role === 'PRODUCTION_HEAD'
+  const isStore = user?.role === 'ADMIN'
   const [requests, setRequests] = useState<ProductionRequest[]>([])
   const [summary, setSummary] = useState<RequestSummary | null>(null)
 
@@ -42,6 +45,16 @@ export function RequestsPage() {
     api.get<RequestSummary>('/production-requests/summary').then(setSummary).catch(() => {})
   }, [])
   useEffect(() => void load(), [load])
+
+  const reviewLine = async (reqId: string, itemId: string, body: ReviewBody) => {
+    try {
+      await api.patch(`/production-requests/${reqId}/items/${itemId}/review`, body)
+      toast({ title: 'Line updated' })
+      load()
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Could not update line', description: err instanceof ApiError ? err.message : '' })
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -58,7 +71,9 @@ export function RequestsPage() {
       )}
 
       <div>
-        <h2 className="mb-2 text-sm font-semibold">{isHead ? 'My requests' : 'All requests'}</h2>
+        <h2 className="mb-2 text-sm font-semibold">
+          {isHead ? 'My requests' : isStore ? 'Requests inbox' : 'All requests'}
+        </h2>
         {requests.length === 0 ? (
           <EmptyState
             icon={ClipboardList}
@@ -68,7 +83,12 @@ export function RequestsPage() {
         ) : (
           <div className="space-y-3">
             {requests.map((r) => (
-              <RequestCard key={r.id} request={r} showDepartment={!isHead} />
+              <RequestCard
+                key={r.id}
+                request={r}
+                showDepartment={!isHead}
+                onReview={isStore ? (itemId, body) => reviewLine(r.id, itemId, body) : undefined}
+              />
             ))}
           </div>
         )}
@@ -88,8 +108,17 @@ function Stat({ label, value }: { label: string; value: number }) {
   )
 }
 
-function RequestCard({ request, showDepartment }: { request: ProductionRequest; showDepartment: boolean }) {
+function RequestCard({
+  request,
+  showDepartment,
+  onReview,
+}: {
+  request: ProductionRequest
+  showDepartment: boolean
+  onReview?: (itemId: string, body: ReviewBody) => Promise<void>
+}) {
   const totalReq = request.items.reduce((s, i) => s + i.requestedKg, 0)
+  const pendingCount = request.items.filter((i) => i.status === 'PENDING').length
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 pb-2">
@@ -98,6 +127,9 @@ function RequestCard({ request, showDepartment }: { request: ProductionRequest; 
             {showDepartment && <Badge variant="outline">{request.department}</Badge>}
             <span>{request.items.length} material{request.items.length === 1 ? '' : 's'}</span>
             <span className="text-muted-foreground">· {totalReq} kg requested</span>
+            {onReview && pendingCount > 0 && (
+              <Badge variant="secondary">{pendingCount} to action</Badge>
+            )}
           </div>
           <div className="text-xs text-muted-foreground">
             {request.requestedBy?.name ?? '—'} · {request.createdAt.slice(0, 10)}
@@ -118,6 +150,7 @@ function RequestCard({ request, showDepartment }: { request: ProductionRequest; 
                 <TableHead className="text-right">Approved</TableHead>
                 <TableHead className="text-right">Issued</TableHead>
                 <TableHead>Status</TableHead>
+                {onReview && <TableHead className="min-w-[220px]">Action</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -135,6 +168,15 @@ function RequestCard({ request, showDepartment }: { request: ProductionRequest; 
                   <TableCell className="text-right">{it.approvedKg != null ? `${it.approvedKg} kg` : '—'}</TableCell>
                   <TableCell className="text-right">{it.issuedKg} kg</TableCell>
                   <TableCell><StatusBadge status={it.status} /></TableCell>
+                  {onReview && (
+                    <TableCell>
+                      {it.status === 'PENDING' ? (
+                        <LineActions requestedKg={it.requestedKg} onReview={(body) => onReview(it.id, body)} />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">decided</span>
+                      )}
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -142,6 +184,71 @@ function RequestCard({ request, showDepartment }: { request: ProductionRequest; 
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+/** Store's per-line controls: Accept / Partial (KG) / Reject (reason). */
+function LineActions({
+  requestedKg,
+  onReview,
+}: {
+  requestedKg: number
+  onReview: (body: ReviewBody) => Promise<void>
+}) {
+  const [mode, setMode] = useState<'idle' | 'partial' | 'reject'>('idle')
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const run = async (body: ReviewBody) => {
+    setBusy(true)
+    try {
+      await onReview(body)
+      setMode('idle')
+      setValue('')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (mode === 'partial') {
+    return (
+      <div className="flex items-center gap-1">
+        <Input
+          type="number"
+          min={0}
+          max={requestedKg}
+          step="any"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={`< ${requestedKg}`}
+          className="h-8 w-20"
+          autoFocus
+        />
+        <span className="text-xs text-muted-foreground">kg</span>
+        <Button size="sm" className="h-8" disabled={busy || !(Number(value) > 0 && Number(value) < requestedKg)} onClick={() => run({ action: 'PARTIAL', approvedKg: Number(value) })}>
+          <Check className="h-4 w-4" />
+        </Button>
+        <Button size="sm" variant="ghost" className="h-8" onClick={() => setMode('idle')}><X className="h-4 w-4" /></Button>
+      </div>
+    )
+  }
+  if (mode === 'reject') {
+    return (
+      <div className="flex items-center gap-1">
+        <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder="Reason…" className="h-8 w-36" autoFocus />
+        <Button size="sm" variant="destructive" className="h-8" disabled={busy || !value.trim()} onClick={() => run({ action: 'REJECT', reason: value.trim() })}>
+          <Check className="h-4 w-4" />
+        </Button>
+        <Button size="sm" variant="ghost" className="h-8" onClick={() => setMode('idle')}><X className="h-4 w-4" /></Button>
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      <Button size="sm" className="h-8" disabled={busy} onClick={() => run({ action: 'APPROVE' })}>Accept</Button>
+      <Button size="sm" variant="outline" className="h-8" disabled={busy} onClick={() => setMode('partial')}>Partial</Button>
+      <Button size="sm" variant="outline" className="h-8 text-destructive" disabled={busy} onClick={() => setMode('reject')}>Reject</Button>
+    </div>
   )
 }
 
