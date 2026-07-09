@@ -157,3 +157,43 @@ export interface RequestSummary {
     totalIssuedKg: number
   }
 }
+
+// ── Phase 2: Stock movement (Step 6) ──
+export type StockTxnType = 'ADD' | 'DEDUCT' | 'DISCARD'
+
+// Compact unit shape returned by GET /stock/units/:uniqueId (has the live balance).
+export interface StockUnit {
+  id: string
+  uniqueId: string
+  materialName: string
+  sku: string | null
+  status: MaterialStatus
+  receivedWeight: number | null
+  balanceKg: number
+  po?: { poNumber: string | null; supplier: string | null }
+}
+
+export interface StockTransaction {
+  id: string
+  materialId: string
+  type: StockTxnType
+  quantityKg: number
+  department: Department | null
+  requestItemId: string | null
+  balanceAfter: number
+  note: string | null
+  createdAt: string
+  actor?: { id: string; name: string }
+  requestItem?: { id: string; requestId: string; materialName: string } | null
+}
+
+// Body for POST /stock/transactions.
+export interface CreateStockTransaction {
+  uniqueId: string
+  type: StockTxnType
+  quantityKg: number
+  department?: Department
+  requestItemId?: string
+  note?: string
+  device?: string
+}

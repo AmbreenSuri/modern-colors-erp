@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { PackagePlus, Send, Search, X, ClipboardList, Plus, Trash2, Check } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { PackagePlus, Send, Search, X, ClipboardList, Plus, Trash2, Check, PackageCheck } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import type {
   CatalogueItem,
   Paginated,
   ProductionRequest,
+  ProductionRequestItem,
   RequestStatus,
   RequestSummary,
 } from '@/types/api'
@@ -32,6 +34,14 @@ export function StatusBadge({ status }: { status: RequestStatus }) {
 }
 
 export type ReviewBody = { action: 'APPROVE' | 'PARTIAL' | 'REJECT'; approvedKg?: number; reason?: string }
+
+/** An approved/partial line still has stock to issue (Store can deduct against it). */
+function isIssuable(it: ProductionRequestItem): boolean {
+  return (
+    (it.status === 'APPROVED' || it.status === 'PARTIAL') &&
+    it.issuedKg + 1e-9 < (it.approvedKg ?? 0)
+  )
+}
 
 export function RequestsPage() {
   const { user } = useAuth()
@@ -172,6 +182,14 @@ function RequestCard({
                     <TableCell>
                       {it.status === 'PENDING' ? (
                         <LineActions requestedKg={it.requestedKg} onReview={(body) => onReview(it.id, body)} />
+                      ) : isIssuable(it) ? (
+                        <Button asChild size="sm" className="h-8 gap-1">
+                          <Link to={`/stock?requestItemId=${it.id}`}>
+                            <PackageCheck className="h-4 w-4" /> Issue
+                          </Link>
+                        </Button>
+                      ) : it.status === 'APPROVED' || it.status === 'PARTIAL' ? (
+                        <span className="text-xs text-success">fulfilled</span>
                       ) : (
                         <span className="text-xs text-muted-foreground">decided</span>
                       )}

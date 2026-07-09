@@ -16,6 +16,7 @@ import { PurchaseOrderModule } from './modules/purchase-order/purchase-order.mod
 import { ReceivingModule } from './modules/receiving/receiving.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ProductionRequestModule } from './modules/production-request/production-request.module';
+import { StockModule } from './modules/stock/stock.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { ProductionRequestModule } from './modules/production-request/production
     ReceivingModule,
     DashboardModule,
     ProductionRequestModule,
+    StockModule,
   ],
   controllers: [HealthController],
 })

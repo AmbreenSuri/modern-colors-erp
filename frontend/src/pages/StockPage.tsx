@@ -1,0 +1,425 @@
+import { useCallback, useEffect, useState, lazy, Suspense } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import {
+  ScanLine,
+  Keyboard,
+  Loader2,
+  RotateCcw,
+  PlusCircle,
+  MinusCircle,
+  Trash2,
+  PackageCheck,
+} from 'lucide-react'
+import { api, ApiError } from '@/lib/api'
+import { useAuth } from '@/lib/auth'
+import type {
+  Department,
+  ProductionRequest,
+  ProductionRequestItem,
+  StockTransaction,
+  StockTxnType,
+  StockUnit,
+} from '@/types/api'
+import { ErrorBoundary } from '@/components/common/ErrorBoundary'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { toast } from '@/hooks/useToast'
+
+const CameraQrScanner = lazy(() =>
+  import('@/components/scan/CameraQrScanner').then((m) => ({ default: m.CameraQrScanner })),
+)
+
+const DEVICE = 'web-client'
+const DEPARTMENTS: Department[] = ['PU', 'ENAMEL', 'POWDER']
+
+// QR payload is JSON ({ uniqueId, ... }); fall back to raw text for a plain ID.
+function extractUniqueId(text: string): string {
+  try {
+    const o = JSON.parse(text)
+    if (o && typeof o.uniqueId === 'string') return o.uniqueId
+  } catch {
+    /* not JSON */
+  }
+  return text.trim()
+}
+
+const TYPE_META: Record<
+  StockTxnType,
+  { label: string; icon: typeof PlusCircle; cls: string; verb: string }
+> = {
+  ADD: { label: 'Add', icon: PlusCircle, cls: 'text-success', verb: 'into stock' },
+  DEDUCT: { label: 'Deduct', icon: MinusCircle, cls: 'text-blue-600', verb: 'out for a department' },
+  DISCARD: { label: 'Discard', icon: Trash2, cls: 'text-destructive', verb: 'wasted / damaged' },
+}
+
+// A request line the Store is issuing against (deep-linked from the inbox).
+interface IssueContext {
+  request: ProductionRequest
+  item: ProductionRequestItem
+}
+
+export function StockPage() {
+  const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestItemId = searchParams.get('requestItemId')
+
+  const [issue, setIssue] = useState<IssueContext | null>(null)
+  const [unit, setUnit] = useState<StockUnit | null>(null)
+  const [history, setHistory] = useState<StockTransaction[]>([])
+  const [scanId, setScanId] = useState('')
+  const [manualOpen, setManualOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  // Movement form
+  const [type, setType] = useState<StockTxnType>('DEDUCT')
+  const [qty, setQty] = useState('')
+  const [department, setDepartment] = useState<Department | ''>('')
+  const [note, setNote] = useState('')
+
+  // Load the request line when deep-linked from the inbox.
+  useEffect(() => {
+    if (!requestItemId) {
+      setIssue(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        // The line lives inside its parent request; we don't know the parent id, so
+        // scan the Store's request list for the line. (Small dataset; fine for Store.)
+        const res = await api.get<{ data: ProductionRequest[] }>('/production-requests?pageSize=200')
+        const parent = res.data.find((r) => r.items.some((i) => i.id === requestItemId))
+        const item = parent?.items.find((i) => i.id === requestItemId)
+        if (!cancelled && parent && item) {
+          setIssue({ request: parent, item })
+          setType('DEDUCT')
+          setDepartment(parent.department)
+          const remaining = Math.max(0, (item.approvedKg ?? 0) - item.issuedKg)
+          setQty(remaining ? String(remaining) : '')
+        }
+      } catch {
+        /* fall back to standalone scan */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [requestItemId])
+
+  const loadHistory = useCallback(async (uniqueId: string) => {
+    try {
+      const res = await api.get<{ transactions: StockTransaction[] }>(
+        `/stock/units/${encodeURIComponent(uniqueId)}/transactions`,
+      )
+      setHistory(res.transactions)
+    } catch {
+      setHistory([])
+    }
+  }, [])
+
+  const lookup = async (rawId: string) => {
+    const id = rawId.trim()
+    if (!id) return
+    setBusy(true)
+    try {
+      const u = await api.get<StockUnit>(`/stock/units/${encodeURIComponent(id)}`)
+      // Hard QR-verify against the request line the Store came in to fulfil.
+      if (issue && !sameMaterial(u, issue.item)) {
+        toast({
+          variant: 'destructive',
+          title: 'Wrong material',
+          description: `Scanned ${u.materialName}${u.sku ? ` (${u.sku})` : ''}, but this line needs ${issue.item.materialName}${issue.item.sku ? ` (${issue.item.sku})` : ''}.`,
+        })
+        return
+      }
+      setUnit(u)
+      setScanId('')
+      if (!issue) setDepartment('')
+      await loadHistory(u.uniqueId)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        toast({ variant: 'destructive', title: 'Unknown unit', description: `No unit with ID ${id}.` })
+      } else if (err instanceof ApiError && err.status === 409) {
+        toast({ variant: 'destructive', title: 'Not weighed', description: err.message })
+      } else {
+        toast({ variant: 'destructive', title: 'Lookup failed', description: err instanceof ApiError ? err.message : '' })
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const submit = async () => {
+    if (!unit) return
+    const q = Number(qty)
+    if (!(q > 0)) {
+      toast({ variant: 'destructive', title: 'Enter a quantity greater than 0' })
+      return
+    }
+    if (type !== 'DISCARD' && !department) {
+      toast({ variant: 'destructive', title: 'Select a department for an Add or Deduct' })
+      return
+    }
+    if ((type === 'DEDUCT' || type === 'DISCARD') && q > unit.balanceKg) {
+      toast({
+        variant: 'destructive',
+        title: 'Not enough on this unit',
+        description: `Only ${unit.balanceKg} kg remain on ${unit.uniqueId}.`,
+      })
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await api.post<{ unit: StockUnit }>('/stock/transactions', {
+        uniqueId: unit.uniqueId,
+        type,
+        quantityKg: q,
+        department: type === 'DISCARD' ? undefined : (department as Department),
+        requestItemId: type === 'DEDUCT' && issue ? issue.item.id : undefined,
+        note: note.trim() || undefined,
+        device: DEVICE,
+      })
+      toast({
+        title: `${TYPE_META[type].label} recorded`,
+        description: `${unit.uniqueId} → ${res.unit.balanceKg} kg remaining`,
+      })
+      setUnit(res.unit)
+      setQty('')
+      setNote('')
+      await loadHistory(res.unit.uniqueId)
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Movement rejected',
+        description: err instanceof ApiError ? err.message : 'Please try again.',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const reset = () => {
+    setUnit(null)
+    setHistory([])
+    setQty('')
+    setNote('')
+  }
+
+  const clearIssue = () => {
+    setIssue(null)
+    setSearchParams({})
+    reset()
+  }
+
+  if (user?.role !== 'ADMIN') {
+    return <p className="text-sm text-muted-foreground">Stock movement is available to the Store only.</p>
+  }
+
+  const remaining = issue ? Math.max(0, (issue.item.approvedKg ?? 0) - issue.item.issuedKg) : null
+
+  return (
+    <div className="mx-auto max-w-xl space-y-4">
+      {issue && (
+        <Card className="border-blue-500/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center justify-between text-base">
+              <span className="flex items-center gap-2">
+                <PackageCheck className="h-4 w-4" /> Issuing a request line
+              </span>
+              <Badge variant="outline">{issue.request.department}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm">
+            <div className="font-medium">
+              {issue.item.materialName}
+              {issue.item.sku ? <span className="text-muted-foreground"> · {issue.item.sku}</span> : null}
+            </div>
+            <div className="text-muted-foreground">
+              Approved {issue.item.approvedKg ?? 0} kg · issued {issue.item.issuedKg} kg ·{' '}
+              <span className="font-medium text-foreground">{remaining} kg remaining</span>
+            </div>
+            <Button variant="ghost" size="sm" className="mt-1 h-7 px-0 text-xs" onClick={clearIssue}>
+              Cancel — do a standalone scan instead
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Scan */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ScanLine className="h-4 w-4" /> Scan a unit QR
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <ErrorBoundary
+            fallback={
+              <div className="rounded-lg border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
+                Camera scanner unavailable — use manual entry below.
+              </div>
+            }
+          >
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center gap-2 rounded-lg border bg-muted/30 py-10 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading scanner…
+                </div>
+              }
+            >
+              <CameraQrScanner paused={!!unit || busy} onResult={(t) => lookup(extractUniqueId(t))} />
+            </Suspense>
+          </ErrorBoundary>
+
+          {manualOpen ? (
+            <form
+              className="flex gap-2 border-t pt-3"
+              onSubmit={(e) => {
+                e.preventDefault()
+                lookup(scanId)
+              }}
+            >
+              <Input placeholder="Type or USB-scan ID (MC-000001)" value={scanId} onChange={(e) => setScanId(e.target.value)} />
+              <Button type="submit" variant="outline" disabled={busy || !scanId.trim()}>
+                Look up
+              </Button>
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setManualOpen(true)}
+              className="flex w-full items-center justify-center gap-1.5 border-t pt-3 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Keyboard className="h-3.5 w-3.5" /> Enter ID manually (USB scanner / typing)
+            </button>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Movement panel */}
+      {unit && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center justify-between text-base">
+              <span className="font-mono">{unit.uniqueId}</span>
+              <Badge variant="default">{unit.balanceKg} kg on unit</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm">
+              <div className="font-medium">{unit.materialName}</div>
+              <div className="text-muted-foreground">
+                {unit.sku ?? '—'} · {unit.po?.supplier ?? '—'}
+                {unit.po?.poNumber ? ` · PO ${unit.po.poNumber}` : ''}
+              </div>
+            </div>
+
+            {/* Always offer all three (Override 3) */}
+            <div className="grid grid-cols-3 gap-2">
+              {(Object.keys(TYPE_META) as StockTxnType[]).map((t) => {
+                const m = TYPE_META[t]
+                const Icon = m.icon
+                const active = type === t
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setType(t)}
+                    className={`flex flex-col items-center gap-1 rounded-md border p-2 text-xs transition-colors ${
+                      active ? 'border-primary bg-primary/5 font-medium' : 'hover:bg-muted/50'
+                    }`}
+                  >
+                    <Icon className={`h-5 w-5 ${m.cls}`} />
+                    {m.label}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">{TYPE_META[type].verb}</p>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="qty">Quantity (kg)</Label>
+                <Input
+                  id="qty"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={qty}
+                  onChange={(e) => setQty(e.target.value)}
+                  placeholder={type === 'ADD' ? 'e.g. 5' : `≤ ${unit.balanceKg}`}
+                />
+              </div>
+              {type !== 'DISCARD' && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="dept">Department</Label>
+                  <select
+                    id="dept"
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value as Department)}
+                    disabled={!!issue}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-70"
+                  >
+                    <option value="">Select…</option>
+                    {DEPARTMENTS.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="note">Note (optional)</Label>
+              <Input id="note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. spillage, returned unused" />
+            </div>
+
+            <div className="flex gap-2">
+              <Button className="flex-1" onClick={submit} disabled={busy}>
+                Confirm {TYPE_META[type].label}
+              </Button>
+              <Button variant="outline" className="gap-1.5" onClick={reset} disabled={busy}>
+                <RotateCcw className="h-4 w-4" /> Next
+              </Button>
+            </div>
+
+            {history.length > 0 && (
+              <div className="rounded-md border">
+                <div className="border-b bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                  Movement history
+                </div>
+                <ul className="divide-y text-xs">
+                  {history.map((h) => (
+                    <li key={h.id} className="flex items-center justify-between px-3 py-1.5">
+                      <span className={TYPE_META[h.type].cls}>
+                        {TYPE_META[h.type].label} {h.quantityKg} kg
+                        {h.department ? ` · ${h.department}` : ''}
+                      </span>
+                      <span className="text-muted-foreground">
+                        → {h.balanceAfter} kg · {h.createdAt.slice(0, 16).replace('T', ' ')}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+function sameMaterial(
+  a: { sku: string | null; materialName: string },
+  b: { sku: string | null; materialName: string },
+): boolean {
+  if (a.sku && b.sku) return a.sku.trim().toLowerCase() === b.sku.trim().toLowerCase()
+  return a.materialName.trim().toLowerCase() === b.materialName.trim().toLowerCase()
+}

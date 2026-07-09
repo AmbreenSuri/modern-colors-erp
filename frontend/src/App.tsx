@@ -12,6 +12,7 @@ import { LabelsPage } from '@/pages/LabelsPage'
 import { ReceivingPage } from '@/pages/ReceivingPage'
 import { AuditPage } from '@/pages/AuditPage'
 import { RequestsPage } from '@/pages/RequestsPage'
+import { StockPage } from '@/pages/StockPage'
 import type { Role } from '@/types/api'
 
 // Phase 1 screens belong to the Phase 1 roles (Store=ADMIN, Operator, Supervisor).
@@ -57,6 +58,7 @@ function AuthedRoutes() {
       <Route element={<AppLayout />}>
         <Route index element={<HomeRoute />} />
         <Route path="requests" element={<RequireRole roles={['PRODUCTION_HEAD', 'OVERSIGHT', 'ADMIN']}><RequestsPage /></RequireRole>} />
+        <Route path="stock" element={<RequireRole roles={['ADMIN']}><StockPage /></RequireRole>} />
         <Route path="purchase-orders" element={<RequireRole roles={PHASE1_ROLES}><PurchaseOrdersPage /></RequireRole>} />
         <Route path="review" element={<RequireRole roles={PHASE1_ROLES}><ReviewPage /></RequireRole>} />
         <Route path="review/:poId" element={<RequireRole roles={PHASE1_ROLES}><ReviewPage /></RequireRole>} />
