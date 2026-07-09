@@ -70,10 +70,12 @@ async function main() {
   // ── 1. Store — relabel display name only; never touch role or credentials ──
   let store = await prisma.user.findUnique({ where: { email: STORE_EMAIL } });
   if (store) {
-    if (store.name !== 'Store' || !store.active) {
+    // Relabel display name only. Never re-activate a deliberately-disabled account,
+    // and never touch role or credentials — re-enabling must be an explicit admin action.
+    if (store.name !== 'Store') {
       store = await prisma.user.update({
         where: { id: store.id },
-        data: { name: 'Store', active: true }, // NOTE: passwordHash + role deliberately untouched
+        data: { name: 'Store' },
       });
       await audit(store.id, 'PHASE2_STORE_RELABELLED', store.id, { name: 'Store' });
       summary.push({ email: STORE_EMAIL, role: store.role, department: '—', note: 'relabelled → "Store"' });
@@ -81,18 +83,13 @@ async function main() {
       summary.push({ email: STORE_EMAIL, role: store.role, department: '—', note: 'already "Store" (unchanged)' });
     }
   } else {
-    // Fresh DB fallback: create the Store with role ADMIN + default password.
-    store = await prisma.user.create({
-      data: {
-        email: STORE_EMAIL,
-        name: 'Store',
-        role: Role.ADMIN,
-        passwordHash: await bcrypt.hash(PW, BCRYPT_ROUNDS),
-        active: true,
-      },
-    });
-    await audit(store.id, 'PHASE2_STORE_CREATED', null, { email: STORE_EMAIL, role: Role.ADMIN });
-    summary.push({ email: STORE_EMAIL, role: Role.ADMIN, department: '—', note: 'created (fresh DB)' });
+    // Never auto-create the powerful ADMIN "Store" here (that would provision an admin
+    // with a known default password). The Phase 1 seed owns Store creation with a proper
+    // SEED_ADMIN_PASSWORD — require it to exist first.
+    throw new Error(
+      `Store login "${STORE_EMAIL}" not found. Run the Phase 1 seed first ` +
+        `(npm run seed, with SEED_ADMIN_PASSWORD set), then re-run this script.`,
+    );
   }
   const actorId = store.id;
 
@@ -100,16 +97,17 @@ async function main() {
   for (const login of NEW_LOGINS) {
     const existing = await prisma.user.findUnique({ where: { email: login.email } });
     if (existing) {
+      // Reconcile role/dept/name only. Do NOT re-credential and do NOT re-activate a
+      // deactivated account (re-enabling must be a deliberate admin action, not a
+      // side effect of re-running setup — avoids auth-bypass via state drift).
       const needsFix =
         existing.role !== login.role ||
         existing.department !== login.department ||
-        existing.name !== login.name ||
-        !existing.active;
+        existing.name !== login.name;
       if (needsFix) {
         await prisma.user.update({
           where: { id: existing.id },
-          // passwordHash intentionally NOT set — never re-credential an existing user.
-          data: { role: login.role, department: login.department, name: login.name, active: true },
+          data: { role: login.role, department: login.department, name: login.name },
         });
         await audit(existing.id, 'PHASE2_USER_RECONCILED', actorId, {
           role: login.role,
@@ -142,15 +140,17 @@ async function main() {
         email: login.email,
         role: login.role,
         department: login.department ?? '—',
-        note: `created (password: ${PW})`,
+        note: 'created (uses the setup password)',
       });
     }
   }
 
   console.log('\n✅ Phase 2 role setup complete:\n');
   console.table(summary);
+  // Do NOT echo the password to stdout (terminal history / CI logs). Newly-created
+  // logins use SEED_PHASE2_PASSWORD (default ChangeMe123!, documented in the header).
   console.log(
-    '\nNew logins use the password above until changed. The Store login keeps its existing credentials.\n',
+    '\nNewly-created logins use the configured setup password until changed. The Store login keeps its existing credentials.\n',
   );
 }
 
