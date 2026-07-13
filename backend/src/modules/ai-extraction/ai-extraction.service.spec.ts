@@ -54,4 +54,40 @@ describe('AiExtractionService.normalize (PO field mapping)', () => {
     expect(res.lineItems[0].quantity).toBe(2); // floored
     expect(res.lineItems[1].quantity).toBe(1); // 0 → safe default of 1
   });
+
+  it('BULK GUARD: a KG line never becomes a package count (the 2600-QR bug)', () => {
+    const res = normalize({
+      lineItems: [
+        { materialName: 'CARB-10 B', hsnCode: '25174100', quantity: 2300, unit: 'KG' },
+        { materialName: 'CHINA CLAY POWDER', hsnCode: '25070029', quantity: 300, unit: 'KG' },
+      ],
+    }) as { lineItems: Record<string, unknown>[] };
+    expect(res.lineItems[0].quantity).toBe(1); // NOT 2300
+    expect(res.lineItems[0].bulkWeightKg).toBe(2300); // surfaced for the operator
+    expect(res.lineItems[1].quantity).toBe(1); // NOT 300
+    expect(res.lineItems[1].bulkWeightKg).toBe(300);
+  });
+
+  it('BULK GUARD handles unit variants (KGS/Ltr/Kg.) case-insensitively', () => {
+    const res = normalize({
+      lineItems: [
+        { materialName: 'X', quantity: 500, unit: 'KGS' },
+        { materialName: 'Y', quantity: 200, unit: 'Ltr' },
+        { materialName: 'Z', quantity: 50, unit: 'Kg.' },
+      ],
+    }) as { lineItems: Record<string, unknown>[] };
+    for (const li of res.lineItems) expect(li.quantity).toBe(1);
+  });
+
+  it('does NOT clamp a real package count (Bag/Drum stay as-is)', () => {
+    const res = normalize({
+      lineItems: [
+        { materialName: 'Resin', quantity: 80, unit: 'Bag', weight: 25 },
+        { materialName: 'Solvent', quantity: 4, unit: 'Drum', weight: 25 },
+      ],
+    }) as { lineItems: Record<string, unknown>[] };
+    expect(res.lineItems[0].quantity).toBe(80);
+    expect(res.lineItems[0].bulkWeightKg).toBeNull();
+    expect(res.lineItems[1].quantity).toBe(4);
+  });
 });

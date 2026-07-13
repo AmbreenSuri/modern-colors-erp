@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ConfirmationDialog } from '@/components/common/ConfirmationDialog'
 import { EmptyState } from '@/components/common/EmptyState'
 import { toast } from '@/hooks/useToast'
@@ -16,6 +15,21 @@ const MATCH: Record<MatchType, { label: string; cls: string }> = {
   EXACT: { label: 'Exact', cls: 'bg-success/15 text-success border-success/30' },
   SIMILAR: { label: 'Similar', cls: 'bg-amber-500/15 text-amber-600 border-amber-500/30' },
   NONE: { label: 'No match', cls: 'bg-muted text-muted-foreground' },
+}
+
+// Bulk measures — a line with one of these units is a WEIGHT/VOLUME total, so its
+// quantity is NOT a real bag count yet. Mirrors the server-side extraction guard.
+const BULK_UNITS = new Set([
+  'kg', 'kgs', 'kilogram', 'kilograms', 'kilo', 'kilos', 'g', 'gm', 'gms', 'gram', 'grams',
+  'mt', 'ton', 'tons', 'tonne', 'tonnes', 'l', 'ltr', 'ltrs', 'litre', 'litres', 'liter', 'liters', 'ml',
+])
+function isBulkUnit(unit: string | null | undefined): boolean {
+  if (!unit) return false
+  return BULK_UNITS.has(unit.trim().toLowerCase().replace(/\./g, ''))
+}
+/** A bulk-unit line still on quantity 1 = the operator hasn't set the real bag count. */
+function needsBagCount(item: { unit: string | null; quantity: number }): boolean {
+  return isBulkUnit(item.unit) && item.quantity <= 1
 }
 
 export function ReviewPage() {
@@ -160,6 +174,7 @@ function ReviewOne({ poId }: { poId: string }) {
   const editable = po.status === 'AI_EXTRACTED'
   const hasDocument = Boolean(po.fileName)
   const largeCount = totalUnits > 300
+  const bulkLineCount = (po.lineItems ?? []).filter(needsBagCount).length
 
   const workingArea = (
     <div className="space-y-4">
@@ -188,50 +203,40 @@ function ReviewOne({ poId }: { poId: string }) {
 
       {(po.status === 'AI_EXTRACTED' || po.lineItems?.length) ? (
         <div className="space-y-3">
-          <div className="overflow-x-auto rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10">S.No</TableHead>
-                  <TableHead className="min-w-[200px]">Material</TableHead>
-                  <TableHead className="w-28">HSN Code</TableHead>
-                  <TableHead className="w-28">SKU</TableHead>
-                  <TableHead className="w-20">Qty</TableHead>
-                  <TableHead className="w-24">Unit</TableHead>
-                  <TableHead className="w-24">Weight</TableHead>
-                  <TableHead>Match</TableHead>
-                  {editable && <TableHead></TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(po.lineItems ?? []).map((li, i) => (
-                  <LineRow key={li.id} poId={poId} item={li} index={i} editable={editable} onChange={load} />
-                ))}
-                {(po.lineItems ?? []).length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-center text-sm text-muted-foreground">
-                      No materials yet.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+          {bulkLineCount > 0 && editable && (
+            <p className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700">
+              <span className="mt-px font-semibold">⚠</span>
+              <span>
+                <span className="font-semibold">{bulkLineCount} line{bulkLineCount === 1 ? '' : 's'}</span> came in
+                as a bulk weight (KG/LTR), so the bag count isn't known yet — each is set to <span className="font-semibold">1</span>.
+                Enter the real number of physical bags/drums for those lines before registering.
+              </span>
+            </p>
+          )}
+
+          {(po.lineItems ?? []).length === 0 ? (
+            <div className="rounded-md border p-6 text-center text-sm text-muted-foreground">No materials yet.</div>
+          ) : (
+            <div className="space-y-2">
+              {(po.lineItems ?? []).map((li, i) => (
+                <LineCard key={li.id} poId={poId} item={li} index={i} editable={editable} onChange={load} />
+              ))}
+            </div>
+          )}
 
           {editable && (
             <>
               <AddLine poId={poId} onAdded={load} />
               {largeCount && (
-                <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700">
+                <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
                   This invoice will create <span className="font-semibold">{totalUnits}</span> QR codes.
-                  Double-check the <span className="font-semibold">Qty</span> column reflects the
-                  number of physical bags/drums (not the total weight in Kg).
+                  Double-check every quantity reflects the number of physical bags/drums (not the total weight in Kg).
                 </p>
               )}
-              <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 p-3">
                 <p className="text-sm">
-                  <span className="font-medium">{totalUnits}</span> physical units will be registered
-                  with one QR code each.
+                  <span className="font-medium">{totalUnits}</span> physical unit{totalUnits === 1 ? '' : 's'} will be
+                  registered with one QR code each.
                 </p>
                 <Button onClick={() => setConfirmOpen(true)} disabled={busy || totalUnits === 0} className="gap-1.5">
                   <CheckCircle2 className="h-4 w-4" /> Confirm &amp; register
@@ -273,7 +278,17 @@ function ReviewOne({ poId }: { poId: string }) {
   )
 }
 
-function LineRow({
+// Field label above an input (keeps the card readable without a table header).
+function Field({ label, children, className = '' }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={className}>
+      <div className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      {children}
+    </div>
+  )
+}
+
+function LineCard({
   poId,
   item,
   index,
@@ -295,12 +310,14 @@ function LineRow({
     weight: item.weight != null ? String(item.weight) : '',
   })
   const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
   const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setV({ ...v, [k]: e.target.value })
     setDirty(true)
   }
 
   const save = async () => {
+    setSaving(true)
     try {
       await api.patch(`/purchase-orders/${poId}/line-items/${item.id}`, {
         materialName: v.materialName,
@@ -314,6 +331,8 @@ function LineRow({
       onChange()
     } catch (err) {
       toast({ variant: 'destructive', title: 'Update failed', description: err instanceof ApiError ? err.message : '' })
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -323,40 +342,83 @@ function LineRow({
   }
 
   const m = MATCH[item.matchType]
+  const flagged = needsBagCount({ unit: v.unit, quantity: Number(v.quantity) || 1 })
+
+  // Read-only (already registered / not editable).
   if (!editable) {
     return (
-      <TableRow>
-        <TableCell className="text-xs text-muted-foreground">{index + 1}</TableCell>
-        <TableCell className="whitespace-normal break-words font-medium">{item.materialName}</TableCell>
-        <TableCell className="font-mono text-xs">{item.hsnCode ?? '—'}</TableCell>
-        <TableCell className="font-mono text-xs">{item.sku ?? '—'}</TableCell>
-        <TableCell>{item.quantity}</TableCell>
-        <TableCell>{item.unit ?? '—'}</TableCell>
-        <TableCell>{item.weight != null ? item.weight : '—'}</TableCell>
-        <TableCell><span className={`rounded border px-2 py-0.5 text-xs ${m.cls}`}>{m.label}</span></TableCell>
-      </TableRow>
+      <div className="rounded-md border p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <span className="mr-1.5 text-xs text-muted-foreground">{index + 1}.</span>
+            <span className="font-medium">{item.materialName}</span>
+          </div>
+          <span className={`shrink-0 rounded border px-2 py-0.5 text-xs ${m.cls}`}>{m.label}</span>
+        </div>
+        <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
+          <span>HSN: <span className="font-mono text-foreground">{item.hsnCode ?? '—'}</span></span>
+          <span>SKU: <span className="font-mono text-foreground">{item.sku ?? '—'}</span></span>
+          <span>Qty: <span className="font-medium text-foreground">{item.quantity}</span> {item.unit ?? ''}</span>
+          <span>Weight/unit: <span className="text-foreground">{item.weight != null ? `${item.weight} kg` : '—'}</span></span>
+        </div>
+      </div>
     )
   }
 
   return (
-    <TableRow>
-      <TableCell className="text-xs text-muted-foreground">{index + 1}</TableCell>
-      <TableCell><Input value={v.materialName} onChange={set('materialName')} className="h-8 min-w-[190px]" /></TableCell>
-      <TableCell><Input value={v.hsnCode} onChange={set('hsnCode')} placeholder="HSN" className="h-8 w-24 font-mono" /></TableCell>
-      <TableCell><Input value={v.sku} onChange={set('sku')} className="h-8 w-24" /></TableCell>
-      <TableCell><Input type="number" min={1} value={v.quantity} onChange={set('quantity')} className="h-8 w-16" /></TableCell>
-      <TableCell><Input value={v.unit} onChange={set('unit')} className="h-8 w-20" /></TableCell>
-      <TableCell><Input type="number" min={0} step="any" value={v.weight} onChange={set('weight')} placeholder="Kg" className="h-8 w-20" /></TableCell>
-      <TableCell><span className={`rounded border px-2 py-0.5 text-xs ${m.cls}`}>{m.label}</span></TableCell>
-      <TableCell>
-        <div className="flex gap-1">
-          {dirty && <Button size="sm" variant="outline" className="h-7" onClick={save}>Save</Button>}
-          <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={remove}>
-            <Trash2 className="h-4 w-4" />
+    <div className={`rounded-md border p-3 ${flagged ? 'border-amber-500/50 bg-amber-500/5' : ''}`}>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{index + 1}.</span>
+          <span className={`rounded border px-2 py-0.5 text-xs ${m.cls}`}>{m.label}</span>
+          {flagged && (
+            <span className="rounded border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700">
+              Enter bag count
+            </span>
+          )}
+        </div>
+        <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={remove}>
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Responsive grid — wraps on narrow screens, no horizontal scroll. */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-12">
+        <Field label="Material" className="col-span-2 sm:col-span-5">
+          <Input value={v.materialName} onChange={set('materialName')} className="h-9" />
+        </Field>
+        <Field label="HSN" className="sm:col-span-3">
+          <Input value={v.hsnCode} onChange={set('hsnCode')} placeholder="e.g. 39072090" className="h-9 font-mono" />
+        </Field>
+        <Field label="SKU" className="sm:col-span-4">
+          <Input value={v.sku} onChange={set('sku')} placeholder="item code" className="h-9 font-mono" />
+        </Field>
+        <Field label="Qty (bags/drums)" className="sm:col-span-4">
+          <Input type="number" min={1} value={v.quantity} onChange={set('quantity')} className={`h-9 ${flagged ? 'border-amber-500' : ''}`} />
+        </Field>
+        <Field label="Unit" className="sm:col-span-4">
+          <Input value={v.unit} onChange={set('unit')} placeholder="Bag / Drum" className="h-9" />
+        </Field>
+        <Field label="Weight/unit (kg)" className="sm:col-span-4">
+          <Input type="number" min={0} step="any" value={v.weight} onChange={set('weight')} placeholder="e.g. 25" className="h-9" />
+        </Field>
+      </div>
+
+      {flagged && (
+        <p className="mt-2 text-xs text-amber-700">
+          This line was read as a bulk weight. Set <span className="font-medium">Qty</span> to the number of physical
+          bags/drums (and the per-bag weight if known).
+        </p>
+      )}
+
+      {dirty && (
+        <div className="mt-2 flex justify-end">
+          <Button size="sm" className="h-8" onClick={save} disabled={saving}>
+            {saving ? 'Saving…' : 'Save line'}
           </Button>
         </div>
-      </TableCell>
-    </TableRow>
+      )}
+    </div>
   )
 }
 

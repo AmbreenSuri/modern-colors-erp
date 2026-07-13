@@ -11,6 +11,11 @@ export interface ExtractedLineItem {
   unit: string | null; // package type (Bag/Drum/Can) or measure unit if truly bulk
   weight: number | null; // PO-stated weight of ONE package (kg), if determinable
   batchNumber: string | null;
+  // When the line was BULK (unit KG/LTR) and we could not derive a real package count,
+  // quantity is forced to 1 and the bulk total is surfaced here so the operator knows
+  // how much material this line represents while they enter the true bag/drum count.
+  // Optional: only the AI-extraction path sets it; manual/edit paths omit it.
+  bulkWeightKg?: number | null;
 }
 
 export interface ExtractionResult {
@@ -33,6 +38,23 @@ export class ExtractionError extends Error {
 }
 
 const SUPPORTED_IMAGE = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+
+// Bulk measure units — when a line's unit is one of these, the "quantity" the AI read
+// is a WEIGHT/VOLUME total, not a package count. We must NOT treat it as a QR-per-unit
+// count (that's what produced a 2600-QR invoice). Normalized to lowercase, no dots.
+const BULK_UNITS = new Set([
+  'kg', 'kgs', 'kilogram', 'kilograms', 'kilo', 'kilos',
+  'g', 'gm', 'gms', 'gram', 'grams',
+  'mt', 'ton', 'tons', 'tonne', 'tonnes',
+  'l', 'ltr', 'ltrs', 'litre', 'litres', 'liter', 'liters',
+  'ml',
+]);
+
+function isBulkUnit(unit: string | null): boolean {
+  if (!unit) return false;
+  const u = unit.trim().toLowerCase().replace(/\./g, '');
+  return BULK_UNITS.has(u);
+}
 
 // JSON Schema for the forced tool call — guarantees structured output.
 const EXTRACT_TOOL = {
@@ -110,10 +132,13 @@ Map each material line carefully — these are DIFFERENT columns and must not be
 - unit = the package word (Bag, Drum, Can, Carton). Bulk measures (KG/LTR) only if no packaging.
 - weight = weight of ONE package in kg, if the document states it; else null.
 
+CRITICAL RULE — never confuse total weight with package count. If a line's quantity column is expressed in KG / KGS / LTR / MT / GM (a weight or volume), that number is the TOTAL amount of material, NOT the number of bags. In that case set quantity to 1 and unit to the measure (e.g. "KG"); the operator will enter the real bag/drum count. Only use a number as quantity when it is an actual count of packages (e.g. "80 BAG", "4 Drums").
+
 Worked examples from real invoices:
 1) Row "TEGO DISPERS 673 (25KGS) | HSN 39072090 | 100.000 Kgs" with a note "Packing: 4 Drums x 25 Kgs" → materialName "TEGO DISPERS 673", hsnCode "39072090", sku null, quantity 4, unit "Drum", weight 25. (The "100 Kgs" is the TOTAL weight, NOT the count.)
 2) Row "POLYESTER RESIN (7000NY) 25KG | HSN 39079990 | Pack Size 25 Kg 1 BAG | Qty 80 BAG" → hsnCode "39079990", quantity 80, unit "Bag", weight 25.
-3) Row "CHINA CLAY POWDER | HSN 25070029 | Qty 300.000 KG" with no package count → hsnCode "25070029", quantity 1, unit "KG", weight null (operator will set the real bag count).
+3) Row "CHINA CLAY POWDER | HSN 25070029 | Qty 300.000 KG" with no package count → hsnCode "25070029", quantity 1, unit "KG", weight null (operator will set the real bag count). Do NOT output quantity 300 here.
+4) Row "CARB-10 B | HSN 25174100 | 2300.000 KG" → materialName "CARB-10 B", hsnCode "25174100", sku null, quantity 1, unit "KG", weight null. NEVER output quantity 2300 — that is 2300 kg of bulk material, not 2300 bags.
 
 Use null for anything not present. Call the record_purchase_order tool with the structured result.`;
 
@@ -191,7 +216,7 @@ export class AiExtractionService {
     const lineItems: ExtractedLineItem[] = rawItems
       .map((it) => {
         const o = it as Record<string, unknown>;
-        const quantity = Number(o.quantity);
+        const rawQty = Number(o.quantity);
         let sku = this.str(o.sku);
         let hsnCode = this.str(o.hsnCode);
         // Defense against the historical mis-mapping: if hsn is empty but sku is a
@@ -201,14 +226,25 @@ export class AiExtractionService {
           sku = null;
         }
         const weight = Number(o.weight);
+        const unit = this.str(o.unit);
+
+        // BULK GUARD: when the unit is a weight/volume measure (KG/LTR/…), the AI's
+        // "quantity" is the bulk TOTAL, not a package count — never mint one QR per Kg.
+        // Force the count to 1 and surface the bulk total for the operator to correct.
+        const bulk = isBulkUnit(unit);
+        const validQty = Number.isFinite(rawQty) && rawQty > 0 ? Math.floor(rawQty) : null;
+        const quantity = bulk ? 1 : validQty ?? 1;
+        const bulkWeightKg = bulk && validQty && validQty > 1 ? validQty : null;
+
         return {
           materialName: String(o.materialName ?? '').trim(),
           hsnCode,
           sku,
-          quantity: Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1,
-          unit: this.str(o.unit),
+          quantity,
+          unit,
           weight: Number.isFinite(weight) && weight > 0 ? weight : null,
           batchNumber: this.str(o.batchNumber),
+          bulkWeightKg,
         };
       })
       .filter((it) => it.materialName.length > 0);
