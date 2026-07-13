@@ -9,6 +9,7 @@ import {
   MinusCircle,
   Trash2,
   PackageCheck,
+  AlertTriangle,
 } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
@@ -16,6 +17,7 @@ import type {
   Department,
   ProductionRequest,
   ProductionRequestItem,
+  StockLevels,
   StockTransaction,
   StockTxnType,
   StockUnit,
@@ -79,10 +81,14 @@ export function StockPage() {
   const [department, setDepartment] = useState<Department | ''>('')
   const [note, setNote] = useState('')
 
+  // FIFO recommendation for the request line being issued (oldest unit to scan first).
+  const [fifoHint, setFifoHint] = useState<{ uniqueId: string; balanceKg: number; ageDays: number } | null>(null)
+
   // Load the request line when deep-linked from the inbox.
   useEffect(() => {
     if (!requestItemId) {
       setIssue(null)
+      setFifoHint(null)
       return
     }
     let cancelled = false
@@ -99,6 +105,8 @@ export function StockPage() {
           setDepartment(parent.department)
           const remaining = Math.max(0, (item.approvedKg ?? 0) - item.issuedKg)
           setQty(remaining ? String(remaining) : '')
+          // Proactively recommend the FIFO-oldest in-stock unit of this material.
+          void recommendOldest(item.sku ?? item.materialName, item.sku, item.materialName, cancelled, setFifoHint)
         }
       } catch {
         /* fall back to standalone scan */
@@ -241,6 +249,14 @@ export function StockPage() {
               Approved {issue.item.approvedKg ?? 0} kg · issued {issue.item.issuedKg} kg ·{' '}
               <span className="font-medium text-foreground">{remaining} kg remaining</span>
             </div>
+            {/* Proactive FIFO recommendation: scan the oldest unit first. */}
+            {fifoHint && (
+              <div className="mt-1 flex items-center gap-1.5 rounded-md bg-primary/10 px-2 py-1 text-xs text-primary">
+                <PackageCheck className="h-3.5 w-3.5 shrink-0" />
+                Recommended: scan <span className="font-mono font-semibold">{fifoHint.uniqueId}</span> first
+                (oldest, {fifoHint.balanceKg} kg, {fifoHint.ageDays}d)
+              </div>
+            )}
             <Button variant="ghost" size="sm" className="mt-1 h-7 px-0 text-xs" onClick={clearIssue}>
               Cancel — do a standalone scan instead
             </Button>
@@ -314,8 +330,32 @@ export function StockPage() {
               <div className="text-muted-foreground">
                 {unit.sku ?? '—'} · {unit.po?.supplier ?? '—'}
                 {unit.po?.poNumber ? ` · PO ${unit.po.poNumber}` : ''}
+                {unit.arrivedAt ? ` · received ${new Date(unit.arrivedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : ''}
               </div>
             </div>
+
+            {/* FIFO soft warning — older stock of the same material still in stock. Never
+                blocks; the operator can proceed. */}
+            {unit.fifo && !unit.fifo.isOldest && unit.fifo.recommended && (
+              <div className="rounded-lg border-2 border-amber-500/60 bg-amber-500/10 p-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                  <div className="text-sm">
+                    <div className="font-semibold text-amber-700">Older stock available</div>
+                    <div className="text-amber-700/90">
+                      <span className="font-mono font-medium">{unit.fifo.recommended.uniqueId}</span> (received{' '}
+                      {unit.fifo.recommended.arrivedAt
+                        ? new Date(unit.fifo.recommended.arrivedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+                        : '—'}
+                      , {unit.fifo.recommended.balanceKg} kg, {unit.fifo.recommended.ageDays} days old) has been in stock
+                      longer. Consider using it first.
+                      {unit.fifo.olderUnits.length > 1 ? ` (+${unit.fifo.olderUnits.length - 1} more older)` : ''}
+                    </div>
+                    <div className="mt-1 text-xs text-amber-700/70">You can still proceed with this unit if needed.</div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Always offer all three (Override 3) */}
             <div className="grid grid-cols-3 gap-2">
@@ -422,4 +462,22 @@ function sameMaterial(
 ): boolean {
   if (a.sku && b.sku) return a.sku.trim().toLowerCase() === b.sku.trim().toLowerCase()
   return a.materialName.trim().toLowerCase() === b.materialName.trim().toLowerCase()
+}
+
+/** Look up the FIFO-oldest in-stock unit of a material (levels lists units oldest-first). */
+async function recommendOldest(
+  query: string,
+  sku: string | null,
+  materialName: string,
+  cancelled: boolean,
+  set: (v: { uniqueId: string; balanceKg: number; ageDays: number } | null) => void,
+) {
+  try {
+    const res = await api.get<StockLevels>(`/stock/levels?q=${encodeURIComponent(query)}`)
+    const group = res.materials.find((m) => sameMaterial(m, { sku, materialName }))
+    const oldest = group?.units[0] // backend sorts units oldest-first
+    if (!cancelled && oldest) set({ uniqueId: oldest.uniqueId, balanceKg: oldest.balanceKg, ageDays: oldest.ageDays })
+  } catch {
+    /* recommendation is best-effort */
+  }
 }

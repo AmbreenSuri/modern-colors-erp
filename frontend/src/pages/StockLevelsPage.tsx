@@ -21,6 +21,8 @@ const TYPE_CLS: Record<StockTxnType, string> = {
 }
 const DEPARTMENTS: Department[] = ['PU', 'ENAMEL', 'POWDER']
 const TYPES: StockTxnType[] = ['ADD', 'DEDUCT', 'DISCARD']
+const fmtDate = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: '2-digit' }) : '—'
 
 export function StockLevelsPage() {
   return (
@@ -81,6 +83,8 @@ function LevelsTab() {
         )}
       </div>
 
+      <p className="text-xs text-muted-foreground">Expand a material to see its units — listed oldest-first (FIFO); use the "use first" unit before newer ones.</p>
+
       {!loading && data && data.materials.length === 0 ? (
         <EmptyState title="No stock on hand" description="Weighed units with a remaining balance will appear here." />
       ) : (
@@ -114,16 +118,34 @@ function LevelsTab() {
                       <TableCell className="text-right">{m.unitCount}</TableCell>
                     </TableRow>
                     {open &&
-                      m.units.map((u) => (
-                        <TableRow key={u.uniqueId} className="bg-muted/30">
-                          <TableCell />
-                          <TableCell colSpan={2} className="font-mono text-xs">{u.uniqueId}</TableCell>
-                          <TableCell className="text-right text-sm">{u.balanceKg} kg</TableCell>
-                          <TableCell className="text-right">
-                            <Badge variant="outline" className="text-[10px]">{u.status.replace(/_/g, ' ')}</Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      m.units.map((u, ui) => {
+                        const ageCls =
+                          u.ageingLevel === 'RED'
+                            ? 'text-destructive font-medium'
+                            : u.ageingLevel === 'AMBER'
+                              ? 'text-warning font-medium'
+                              : 'text-muted-foreground'
+                        return (
+                          <TableRow key={u.uniqueId} className="bg-muted/30">
+                            <TableCell />
+                            <TableCell colSpan={2}>
+                              <span className="font-mono text-xs">{u.uniqueId}</span>
+                              {ui === 0 && (
+                                <span className="ml-2 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                  use first
+                                </span>
+                              )}
+                              <span className={`ml-2 text-[11px] ${ageCls}`}>
+                                {fmtDate(u.arrivedAt)} · {u.ageDays}d
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right text-sm">{u.balanceKg} kg</TableCell>
+                            <TableCell className="text-right">
+                              <Badge variant="outline" className="text-[10px]">{u.status.replace(/_/g, ' ')}</Badge>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
                   </Fragment>
                 )
               })}

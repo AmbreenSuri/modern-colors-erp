@@ -9,6 +9,7 @@ import {
   normalizeWindow,
   StockAlertLevel,
 } from './analytics.constants';
+import { ageDays, ageingLevel, fifoSort, AGEING } from '../stock/fifo.util';
 
 const emptyStatus = (): Record<RequestStatus, number> => ({
   PENDING: 0,
@@ -88,6 +89,39 @@ export class AnalyticsService {
   }
 
   /**
+   * Ageing stock (FIFO operational alert): individual in-stock units sorted oldest-first,
+   * flagged AMBER (≥30d) / RED (≥60d) by arrival age. Factory-wide (stock isn't dept-
+   * owned). Returns the oldest `take` flagged units + counts. Pairs with low-stock.
+   */
+  private async ageingStock(take = 8) {
+    const now = new Date();
+    const units = await this.prisma.material.findMany({
+      where: { balanceKg: { gt: 0 } },
+      select: { uniqueId: true, materialName: true, sku: true, balanceKg: true, arrivedAt: true },
+    });
+    const ordered = fifoSort(units).map((u) => {
+      const days = ageDays(u.arrivedAt, now);
+      return {
+        uniqueId: u.uniqueId,
+        materialName: u.materialName,
+        sku: u.sku,
+        balanceKg: u.balanceKg ?? 0,
+        arrivedAt: u.arrivedAt,
+        ageDays: days,
+        level: ageingLevel(days),
+      };
+    });
+    const flagged = ordered.filter((u) => u.level !== 'FRESH');
+    return {
+      thresholds: { amberDays: AGEING.AMBER_DAYS, redDays: AGEING.RED_DAYS },
+      units: flagged.slice(0, take), // oldest-first
+      amberCount: flagged.filter((u) => u.level === 'AMBER').length,
+      redCount: flagged.filter((u) => u.level === 'RED').length,
+      oldestAgeDays: ordered[0]?.ageDays ?? 0,
+    };
+  }
+
+  /**
    * Movement time-series bucketed by day for the last `days` days. Optionally scoped
    * to a single department (for a production head — only their own DEDUCTs). One query,
    * bucketed in JS.
@@ -163,6 +197,7 @@ export class AnalyticsService {
     const w = normalizeWindow(days);
     const [
       lowStock,
+      ageing,
       snapshot,
       totals,
       series,
@@ -174,6 +209,7 @@ export class AnalyticsService {
       recentReviews,
     ] = await Promise.all([
       this.lowStock(),
+      this.ageingStock(),
       this.stockSnapshot(),
       this.movementTotals(w),
       this.movementSeries(w),
@@ -222,6 +258,7 @@ export class AnalyticsService {
     return {
       windowDays: w,
       lowStock,
+      ageing,
       snapshot,
       totals,
       series,
@@ -237,8 +274,9 @@ export class AnalyticsService {
 
   async storeOverview(days?: number) {
     const w = normalizeWindow(days);
-    const [lowStock, snapshot, totals, series, pending, topRequested, recentIssues] = await Promise.all([
+    const [lowStock, ageing, snapshot, totals, series, pending, topRequested, recentIssues] = await Promise.all([
       this.lowStock(),
+      this.ageingStock(),
       this.stockSnapshot(),
       this.movementTotals(w),
       this.movementSeries(w),
@@ -263,6 +301,7 @@ export class AnalyticsService {
     return {
       windowDays: w,
       lowStock,
+      ageing,
       snapshot,
       totals,
       series,

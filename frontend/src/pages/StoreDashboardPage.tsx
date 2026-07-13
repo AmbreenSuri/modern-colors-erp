@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/common/EmptyState'
 import { MovementTrend, CategoryBars } from '@/components/charts/Charts'
 import { WindowToggle } from '@/components/charts/WindowToggle'
-import { LowStockAlerts, Kpi, ChartCard, Empty, DashboardSkeleton } from '@/components/dashboard/parts'
+import { LowStockAlerts, AgeingStockPanel, Kpi, ChartCard, Empty, DashboardSkeleton } from '@/components/dashboard/parts'
 
 export function StoreDashboardPage() {
   const [days, setDays] = useState(30)
@@ -90,6 +90,8 @@ export function StoreDashboardPage() {
       )}
 
       <LowStockAlerts lowStock={data.lowStock} />
+
+      <AgeingStockPanel ageing={data.ageing} />
 
       {/* KPIs */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

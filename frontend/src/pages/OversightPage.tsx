@@ -19,7 +19,7 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { MovementTrend, CategoryBars, Donut, FulfilmentBars } from '@/components/charts/Charts'
 import { DEPT_COLOR, STATUS_COLOR } from '@/components/charts/chartTheme'
 import { WindowToggle } from '@/components/charts/WindowToggle'
-import { LowStockAlerts, Kpi, ChartCard, Empty, DashboardSkeleton } from '@/components/dashboard/parts'
+import { LowStockAlerts, AgeingStockPanel, Kpi, ChartCard, Empty, DashboardSkeleton } from '@/components/dashboard/parts'
 
 const DEPARTMENTS: Department[] = ['PU', 'ENAMEL', 'POWDER']
 const STATUSES: RequestStatus[] = ['PENDING', 'IN_PROGRESS', 'APPROVED', 'PARTIAL', 'REJECTED']
@@ -70,6 +70,8 @@ export function OversightPage() {
       </div>
 
       <LowStockAlerts lowStock={data.lowStock} />
+
+      <AgeingStockPanel ageing={data.ageing} />
 
       {/* KPI cards */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

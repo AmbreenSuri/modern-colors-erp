@@ -1,8 +1,64 @@
 import type { ReactNode } from 'react'
-import { AlertTriangle, Boxes, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Boxes, Clock, type LucideIcon } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import type { LowStock } from '@/types/api'
+import type { AgeingStock, LowStock } from '@/types/api'
+
+const fmtDate = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '—'
+
+/** Ageing-stock operational panel (FIFO): oldest in-stock units, amber ≥30d / red ≥60d.
+ * Shared by the Store and Admin dashboards. */
+export function AgeingStockPanel({ ageing }: { ageing: AgeingStock }) {
+  if (ageing.units.length === 0) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+            <Clock className="h-4 w-4" /> Ageing stock
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            No ageing stock — oldest unit is {ageing.oldestAgeDays} day{ageing.oldestAgeDays === 1 ? '' : 's'} old
+            (flags at {ageing.thresholds.amberDays}d).
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex flex-wrap items-center gap-2 text-sm font-medium">
+          <span className="flex items-center gap-1.5 text-muted-foreground"><Clock className="h-4 w-4" /> Ageing stock</span>
+          {ageing.redCount > 0 && <Badge variant="destructive">{ageing.redCount} old</Badge>}
+          {ageing.amberCount > 0 && <Badge className="bg-warning text-warning-foreground hover:bg-warning">{ageing.amberCount} ageing</Badge>}
+          <span className="text-xs font-normal text-muted-foreground">use oldest first</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ul className="divide-y text-sm">
+          {ageing.units.map((u) => {
+            const red = u.level === 'RED'
+            return (
+              <li key={u.uniqueId} className="flex items-center gap-2 py-1.5">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${red ? 'bg-destructive' : 'bg-warning'}`} />
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="font-mono text-xs">{u.uniqueId}</span> · {u.materialName}
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">{u.balanceKg} kg</span>
+                <span className={`shrink-0 text-xs font-medium ${red ? 'text-destructive' : 'text-warning'}`}>
+                  {u.ageDays}d · {fmtDate(u.arrivedAt)}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      </CardContent>
+    </Card>
+  )
+}
 
 /** Prominent low-stock alert grid (critical = red, low = amber). Shared by Admin + Store. */
 export function LowStockAlerts({ lowStock }: { lowStock: LowStock }) {

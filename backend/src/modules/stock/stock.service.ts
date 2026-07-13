@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
 import { CreateStockTransactionDto } from './dto/create-stock-transaction.dto';
+import { ageDays, ageingLevel as ageingLevelFor, fifoSort, olderUnitsThan } from './fifo.util';
 
 const unitSelect = {
   id: true,
@@ -18,6 +19,7 @@ const unitSelect = {
   status: true,
   receivedWeight: true,
   balanceKg: true,
+  arrivedAt: true,
   po: { select: { poNumber: true, supplier: true } },
 } satisfies Prisma.MaterialSelect;
 
@@ -49,7 +51,46 @@ export class StockService {
         `Unit ${uniqueId} has no confirmed weight yet — weigh it before any stock movement.`,
       );
     }
-    return unit;
+    const fifo = await this.fifoContextFor(unit);
+    return { ...unit, fifo };
+  }
+
+  /**
+   * FIFO context for a scanned unit: is it the oldest in-stock unit of its material, or
+   * are there OLDER units still holding stock (which the Store should ideally use first)?
+   * Never blocks — this is a soft advisory shown at scan time. `arrivedAt` is the basis,
+   * uniqueId the same-day tiebreak.
+   */
+  private async fifoContextFor(unit: {
+    uniqueId: string;
+    materialName: string;
+    sku: string | null;
+    arrivedAt: Date | null;
+    balanceKg: number | null;
+  }) {
+    const now = new Date();
+    // All in-stock units that are the SAME material (sku-first, else name).
+    const candidates = await this.prisma.material.findMany({
+      where: {
+        balanceKg: { gt: 0 },
+        ...(unit.sku
+          ? { sku: unit.sku }
+          : { materialName: unit.materialName, sku: null }),
+      },
+      select: { uniqueId: true, arrivedAt: true, balanceKg: true },
+    });
+    const older = olderUnitsThan(unit, candidates).map((u) => ({
+      uniqueId: u.uniqueId,
+      arrivedAt: u.arrivedAt,
+      balanceKg: u.balanceKg ?? 0,
+      ageDays: ageDays(u.arrivedAt, now),
+    }));
+    return {
+      isOldest: older.length === 0,
+      ageDays: ageDays(unit.arrivedAt, now),
+      olderUnits: older, // oldest-first; [0] is the FIFO-recommended alternative
+      recommended: older[0] ?? null,
+    };
   }
 
   /** The append-only movement history for one unit (newest first). */
@@ -89,11 +130,19 @@ export class StockService {
     };
     const units = await this.prisma.material.findMany({
       where,
-      select: { uniqueId: true, materialName: true, sku: true, status: true, balanceKg: true },
-      orderBy: [{ materialName: 'asc' }, { uniqueId: 'asc' }],
+      select: { uniqueId: true, materialName: true, sku: true, status: true, balanceKg: true, arrivedAt: true },
     });
+    const now = new Date();
 
     // Group by sku (fallback to normalized name) so units of the same material roll up.
+    type LevelUnit = {
+      uniqueId: string;
+      balanceKg: number;
+      status: string;
+      arrivedAt: Date | null;
+      ageDays: number;
+      ageingLevel: string;
+    };
     const groups = new Map<
       string,
       {
@@ -101,7 +150,7 @@ export class StockService {
         sku: string | null;
         totalBalanceKg: number;
         unitCount: number;
-        units: { uniqueId: string; balanceKg: number; status: string }[];
+        units: LevelUnit[];
       }
     >();
     for (const u of units) {
@@ -111,9 +160,20 @@ export class StockService {
         { materialName: u.materialName, sku: u.sku, totalBalanceKg: 0, unitCount: 0, units: [] };
       g.totalBalanceKg = Number((g.totalBalanceKg + (u.balanceKg ?? 0)).toFixed(6));
       g.unitCount += 1;
-      g.units.push({ uniqueId: u.uniqueId, balanceKg: u.balanceKg ?? 0, status: u.status });
+      const days = ageDays(u.arrivedAt, now);
+      g.units.push({
+        uniqueId: u.uniqueId,
+        balanceKg: u.balanceKg ?? 0,
+        status: u.status,
+        arrivedAt: u.arrivedAt,
+        ageDays: days,
+        ageingLevel: ageingLevelFor(days),
+      });
       groups.set(key, g);
     }
+
+    // Sort each material's units OLDEST-FIRST (FIFO order) so the pick order is obvious.
+    for (const g of groups.values()) g.units = fifoSort(g.units);
 
     const materials = [...groups.values()].sort((a, b) =>
       a.materialName.localeCompare(b.materialName),
@@ -250,8 +310,14 @@ export class StockService {
       // Lock the unit row so concurrent scans of the same unit can't both pass the
       // balance check and drive it negative.
       const locked = await tx.$queryRaw<
-        { id: string; balanceKg: number | null; materialName: string; sku: string | null }[]
-      >`SELECT "id", "balanceKg", "materialName", "sku" FROM "Material" WHERE "uniqueId" = ${dto.uniqueId} FOR UPDATE`;
+        {
+          id: string;
+          balanceKg: number | null;
+          materialName: string;
+          sku: string | null;
+          arrivedAt: Date | null;
+        }[]
+      >`SELECT "id", "balanceKg", "materialName", "sku", "arrivedAt" FROM "Material" WHERE "uniqueId" = ${dto.uniqueId} FOR UPDATE`;
       const row = locked[0];
       if (!row) throw new NotFoundException(`No unit with ID ${dto.uniqueId}`);
       if (row.balanceKg == null) {
@@ -329,6 +395,30 @@ export class StockService {
         };
       }
 
+      // FIFO advisory (consumption only): if an OLDER in-stock unit of the same material
+      // exists, this deduct/discard is a FIFO override. We never block — but we record
+      // which older unit was skipped so Admin can see whether FIFO is followed.
+      let fifoOverride: { skipped: { uniqueId: string; arrivedAt: Date | null; balanceKg: number }; olderCount: number } | null = null;
+      if (dto.type === StockTxnType.DEDUCT || dto.type === StockTxnType.DISCARD) {
+        const candidates = await tx.material.findMany({
+          where: {
+            balanceKg: { gt: 0 },
+            ...(row.sku ? { sku: row.sku } : { materialName: row.materialName, sku: null }),
+          },
+          select: { uniqueId: true, arrivedAt: true, balanceKg: true },
+        });
+        const older = olderUnitsThan(
+          { uniqueId: dto.uniqueId, arrivedAt: row.arrivedAt, balanceKg: row.balanceKg },
+          candidates,
+        );
+        if (older.length > 0) {
+          fifoOverride = {
+            skipped: { uniqueId: older[0].uniqueId, arrivedAt: older[0].arrivedAt, balanceKg: older[0].balanceKg ?? 0 },
+            olderCount: older.length,
+          };
+        }
+      }
+
       // Compute the new balance and block anything that would go negative.
       let balanceAfter: number;
       if (dto.type === StockTxnType.ADD) {
@@ -400,8 +490,40 @@ export class StockService {
         tx,
       );
 
+      // Record the FIFO override (older stock skipped) as its own append-only entry, so
+      // Admin can trace whether FIFO is being followed — without blocking the operator.
+      if (fifoOverride) {
+        const now = new Date();
+        await this.audit.log(
+          {
+            entityType: 'StockTransaction',
+            entityId: txn.id,
+            action: 'FIFO_OVERRIDE',
+            actorId: user.id,
+            device: dto.device ?? null,
+            before: {
+              skippedUniqueId: fifoOverride.skipped.uniqueId,
+              skippedArrivedAt: fifoOverride.skipped.arrivedAt?.toISOString() ?? null,
+              skippedBalanceKg: fifoOverride.skipped.balanceKg,
+              skippedAgeDays: ageDays(fifoOverride.skipped.arrivedAt, now),
+              olderUnitsInStock: fifoOverride.olderCount,
+            },
+            after: {
+              usedUniqueId: dto.uniqueId,
+              usedArrivedAt: row.arrivedAt?.toISOString() ?? null,
+              usedAgeDays: ageDays(row.arrivedAt, now),
+              type: dto.type,
+              quantityKg: dto.quantityKg,
+              department,
+              requestItemId: requestItem?.id ?? null,
+            },
+          },
+          tx,
+        );
+      }
+
       const unit = await tx.material.findUnique({ where: { id: row.id }, select: unitSelect });
-      return { transaction: txn, unit };
+      return { transaction: txn, unit, fifoOverride: fifoOverride ? { skipped: fifoOverride.skipped.uniqueId, olderCount: fifoOverride.olderCount } : null };
     });
   }
 }

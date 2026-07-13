@@ -161,6 +161,14 @@ export interface RequestSummary {
 // ── Phase 2: Stock movement (Step 6) ──
 export type StockTxnType = 'ADD' | 'DEDUCT' | 'DISCARD'
 
+// FIFO advisory attached to a scanned unit (soft — never blocks).
+export interface FifoContext {
+  isOldest: boolean
+  ageDays: number
+  olderUnits: { uniqueId: string; arrivedAt: string | null; balanceKg: number; ageDays: number }[]
+  recommended: { uniqueId: string; arrivedAt: string | null; balanceKg: number; ageDays: number } | null
+}
+
 // Compact unit shape returned by GET /stock/units/:uniqueId (has the live balance).
 export interface StockUnit {
   id: string
@@ -170,7 +178,18 @@ export interface StockUnit {
   status: MaterialStatus
   receivedWeight: number | null
   balanceKg: number
+  arrivedAt: string | null
   po?: { poNumber: string | null; supplier: string | null }
+  fifo?: FifoContext
+}
+
+export type AgeingLevel = 'FRESH' | 'AMBER' | 'RED'
+export interface AgeingStock {
+  thresholds: { amberDays: number; redDays: number }
+  units: { uniqueId: string; materialName: string; sku: string | null; balanceKg: number; arrivedAt: string | null; ageDays: number; level: AgeingLevel }[]
+  amberCount: number
+  redCount: number
+  oldestAgeDays: number
 }
 
 export interface StockTransaction {
@@ -194,7 +213,15 @@ export interface StockLevelMaterial {
   sku: string | null
   totalBalanceKg: number
   unitCount: number
-  units: { uniqueId: string; balanceKg: number; status: MaterialStatus }[]
+  // Oldest-first (FIFO order), each with received date + age + ageing level.
+  units: {
+    uniqueId: string
+    balanceKg: number
+    status: MaterialStatus
+    arrivedAt: string | null
+    ageDays: number
+    ageingLevel: AgeingLevel
+  }[]
 }
 export interface StockLevels {
   materials: StockLevelMaterial[]
@@ -251,6 +278,7 @@ export interface MaterialTotal {
 export interface AdminAnalytics {
   windowDays: number
   lowStock: LowStock
+  ageing: AgeingStock
   snapshot: { grandTotalKg: number; unitCount: number; materialCount: number }
   totals: MovementTotals
   series: MovementPoint[]
@@ -267,6 +295,7 @@ export interface AdminAnalytics {
 export interface StoreAnalytics {
   windowDays: number
   lowStock: LowStock
+  ageing: AgeingStock
   snapshot: { grandTotalKg: number; unitCount: number; materialCount: number }
   totals: MovementTotals
   series: MovementPoint[]

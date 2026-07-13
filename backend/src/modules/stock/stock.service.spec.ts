@@ -22,10 +22,16 @@ type UnitRow = { id: string; balanceKg: number | null; materialName: string; sku
 function makeService(opts: {
   unit: UnitRow;
   requestItem?: any;
+  // Other in-stock units of the same material (for FIFO override tests). Default: none.
+  siblings?: { uniqueId: string; arrivedAt: Date | null; balanceKg: number }[];
 }) {
   const updates: any = { material: null, txnCreated: null, itemUpdate: null };
+  const auditLog: any[] = [];
+  // The scanned unit's arrival — taken from its own sibling entry (uniqueId MC-1) so
+  // FIFO override tests can control whether it is the oldest.
+  const selfArrival = opts.siblings?.find((s) => s.uniqueId === 'MC-1')?.arrivedAt ?? null;
   const tx = {
-    $queryRaw: async () => (opts.unit ? [opts.unit] : []),
+    $queryRaw: async () => (opts.unit ? [{ ...opts.unit, arrivedAt: selfArrival }] : []),
     productionRequestItem: {
       findUnique: async () => opts.requestItem ?? null,
       update: async ({ data }: any) => {
@@ -44,13 +50,15 @@ function makeService(opts: {
         updates.material = data;
         return data;
       },
+      // FIFO override detection queries same-material in-stock units here.
+      findMany: async () => opts.siblings ?? [],
       findUnique: async () => ({ ...opts.unit, uniqueId: 'MC-1' }),
     },
   };
   const prisma: any = { $transaction: async (fn: any) => fn(tx) };
-  const audit: any = { log: async () => undefined };
+  const audit: any = { log: async (e: any) => auditLog.push(e) };
   const service = new StockService(prisma, audit);
-  return { service, updates };
+  return { service, updates, auditLog };
 }
 
 const base = {
@@ -293,6 +301,44 @@ describe('StockService.createTransaction', () => {
           requestItemId: 'item-1',
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('FIFO override audit', () => {
+    it('writes FIFO_OVERRIDE when an OLDER in-stock unit of the same material exists', async () => {
+      const { service, auditLog } = makeService({
+        unit: { id: 'u1', balanceKg: 10, materialName: 'China Clay', sku: 'CC' },
+        siblings: [
+          { uniqueId: 'MC-1', arrivedAt: new Date('2026-07-09'), balanceKg: 10 }, // the target (self)
+          { uniqueId: 'MC-OLD', arrivedAt: new Date('2026-06-01'), balanceKg: 8 }, // older, in stock
+        ],
+      });
+      await service.createTransaction(store, { ...base, type: StockTxnType.DEDUCT, quantityKg: 2, department: 'PU' as any });
+      const fifo = auditLog.find((a) => a.action === 'FIFO_OVERRIDE');
+      expect(fifo).toBeTruthy();
+      expect(fifo.before.skippedUniqueId).toBe('MC-OLD');
+      expect(fifo.after.usedUniqueId).toBe('MC-1');
+    });
+
+    it('does NOT write FIFO_OVERRIDE when the scanned unit is the oldest', async () => {
+      const { service, auditLog } = makeService({
+        unit: { id: 'u1', balanceKg: 10, materialName: 'China Clay', sku: 'CC' },
+        siblings: [
+          { uniqueId: 'MC-1', arrivedAt: new Date('2026-06-01'), balanceKg: 10 }, // target is oldest
+          { uniqueId: 'MC-NEW', arrivedAt: new Date('2026-07-09'), balanceKg: 8 },
+        ],
+      });
+      await service.createTransaction(store, { ...base, type: StockTxnType.DEDUCT, quantityKg: 2, department: 'PU' as any });
+      expect(auditLog.find((a) => a.action === 'FIFO_OVERRIDE')).toBeUndefined();
+    });
+
+    it('does NOT write FIFO_OVERRIDE for an ADD (only consumption is FIFO-checked)', async () => {
+      const { service, auditLog } = makeService({
+        unit: { id: 'u1', balanceKg: 10, materialName: 'China Clay', sku: 'CC' },
+        siblings: [{ uniqueId: 'MC-OLD', arrivedAt: new Date('2026-06-01'), balanceKg: 8 }],
+      });
+      await service.createTransaction(store, { ...base, type: StockTxnType.ADD, quantityKg: 2, department: 'PU' as any });
+      expect(auditLog.find((a) => a.action === 'FIFO_OVERRIDE')).toBeUndefined();
     });
   });
 });
