@@ -16,10 +16,12 @@ const buttonVariants = cva(
         link: 'text-primary underline-offset-4 hover:underline',
       },
       size: {
-        default: 'h-9 px-4 py-2',
-        sm: 'h-8 rounded-md px-3 text-xs',
-        lg: 'h-10 rounded-md px-8',
-        icon: 'h-9 w-9',
+        // Touch devices get a 44px minimum tap target (gloved hands on the factory
+        // floor); pointer devices keep the original compact sizing exactly.
+        default: 'h-9 px-4 py-2 [@media(pointer:coarse)]:min-h-11',
+        sm: 'h-8 rounded-md px-3 text-xs [@media(pointer:coarse)]:min-h-10',
+        lg: 'h-10 rounded-md px-8 [@media(pointer:coarse)]:min-h-11',
+        icon: 'h-9 w-9 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11',
       },
     },
     defaultVariants: {

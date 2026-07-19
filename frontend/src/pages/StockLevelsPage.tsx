@@ -29,15 +29,25 @@ export function StockLevelsPage() {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="levels">
-        <TabsList>
-          <TabsTrigger value="levels" className="gap-1.5">
-            <Boxes className="h-4 w-4" /> Live levels
+        {/* -mx-1 px-1 gives the scrolling tab strip a little bleed so the last tab
+            doesn't sit flush against the screen edge when it scrolls. */}
+        {/* Three tabs + icons cannot fit 320–390px screens. Rather than clipping the
+            last label, the wording shortens on mobile and returns in full from sm up. */}
+        <TabsList className="w-full justify-start sm:w-auto">
+          <TabsTrigger value="levels" className="flex-1 gap-1.5 sm:flex-none">
+            <Boxes className="h-4 w-4 shrink-0" />
+            <span className="sm:hidden">Levels</span>
+            <span className="hidden sm:inline">Live levels</span>
           </TabsTrigger>
-          <TabsTrigger value="ageing" className="gap-1.5">
-            <Clock className="h-4 w-4" /> Stock ageing
+          <TabsTrigger value="ageing" className="flex-1 gap-1.5 sm:flex-none">
+            <Clock className="h-4 w-4 shrink-0" />
+            <span className="sm:hidden">Ageing</span>
+            <span className="hidden sm:inline">Stock ageing</span>
           </TabsTrigger>
-          <TabsTrigger value="ledger" className="gap-1.5">
-            <ScrollText className="h-4 w-4" /> Movement ledger
+          <TabsTrigger value="ledger" className="flex-1 gap-1.5 sm:flex-none">
+            <ScrollText className="h-4 w-4 shrink-0" />
+            <span className="sm:hidden">Ledger</span>
+            <span className="hidden sm:inline">Movement ledger</span>
           </TabsTrigger>
         </TabsList>
         <TabsContent value="levels" className="mt-4">
@@ -77,13 +87,15 @@ function LevelsTab() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="relative max-w-xs flex-1">
+      {/* flex-wrap so the total drops below the search box on narrow phones instead of
+          being clipped off the right edge. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="relative min-w-0 max-w-xs flex-1">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input className="pl-8" placeholder="Search material / SKU / unit" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         {data && (
-          <div className="text-sm text-muted-foreground">
+          <div className="shrink-0 text-sm text-muted-foreground">
             <span className="font-medium text-foreground">{data.grandTotalKg} kg</span> across {data.unitCount} unit
             {data.unitCount === 1 ? '' : 's'}
           </div>
@@ -102,8 +114,8 @@ function LevelsTab() {
                 <TableHead className="w-8" />
                 <TableHead className="min-w-[180px]">Material</TableHead>
                 <TableHead>SKU</TableHead>
-                <TableHead className="text-right">In hand</TableHead>
-                <TableHead className="text-right">Units</TableHead>
+                <TableHead className="whitespace-nowrap text-right">In hand</TableHead>
+                <TableHead className="whitespace-nowrap text-right">Units</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -121,7 +133,7 @@ function LevelsTab() {
                       </TableCell>
                       <TableCell className="font-medium">{m.materialName}</TableCell>
                       <TableCell className="font-mono text-xs">{m.sku ?? '—'}</TableCell>
-                      <TableCell className="text-right font-medium">{m.totalBalanceKg} kg</TableCell>
+                      <TableCell className="whitespace-nowrap text-right font-medium">{m.totalBalanceKg} kg</TableCell>
                       <TableCell className="text-right">{m.unitCount}</TableCell>
                     </TableRow>
                     {open &&
@@ -146,7 +158,7 @@ function LevelsTab() {
                                 {fmtDate(u.arrivedAt)} · {u.ageDays}d
                               </span>
                             </TableCell>
-                            <TableCell className="text-right text-sm">{u.balanceKg} kg</TableCell>
+                            <TableCell className="whitespace-nowrap text-right text-sm">{u.balanceKg} kg</TableCell>
                             <TableCell className="text-right">
                               <Badge variant="outline" className="text-[10px]">{u.status.replace(/_/g, ' ')}</Badge>
                             </TableCell>
@@ -231,9 +243,9 @@ function AgeingTab() {
               <TableRow>
                 <TableHead>Unit</TableHead>
                 <TableHead className="min-w-[150px]">Material</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
+                <TableHead className="whitespace-nowrap text-right">Balance</TableHead>
                 <TableHead>Received</TableHead>
-                <TableHead className="text-right">Age</TableHead>
+                <TableHead className="whitespace-nowrap text-right">Age</TableHead>
                 <TableHead>Supplier</TableHead>
               </TableRow>
             </TableHeader>
@@ -252,7 +264,7 @@ function AgeingTab() {
                       {u.materialName}
                       {u.sku ? <span className="ml-1.5 font-mono text-[11px] text-muted-foreground">{u.sku}</span> : null}
                     </TableCell>
-                    <TableCell className="text-right text-sm">{u.balanceKg} kg</TableCell>
+                    <TableCell className="whitespace-nowrap text-right text-sm">{u.balanceKg} kg</TableCell>
                     <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{fmtDate(u.arrivedAt)}</TableCell>
                     <TableCell className={`text-right text-sm font-medium ${cls}`}>{u.ageDays}d</TableCell>
                     <TableCell className="truncate text-xs text-muted-foreground">{u.supplier ?? '—'}</TableCell>

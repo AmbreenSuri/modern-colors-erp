@@ -24,13 +24,16 @@ export function AppLayout() {
   return (
     <div className="min-h-screen bg-background">
       <Sidebar open={sidebarOpen} onNavigate={() => setSidebarOpen(false)} />
-      <div className="lg:pl-60">
+      {/* min-w-0 + overflow-x-clip: a wide child (a data table, a tab strip) scrolls
+          inside its own container instead of stretching the page and creating a
+          horizontal scrollbar on phones. Desktop layout is unchanged. */}
+      <div className="min-w-0 lg:pl-60">
         <Navbar
           title={pageInfo.title}
           subtitle={pageInfo.subtitle}
           onMenuClick={() => setSidebarOpen(!sidebarOpen)}
         />
-        <main className="p-4 lg:p-6">
+        <main className="min-w-0 max-w-full overflow-x-clip p-4 lg:p-6">
           <Outlet />
         </main>
       </div>
