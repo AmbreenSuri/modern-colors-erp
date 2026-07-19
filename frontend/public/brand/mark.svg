@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Modern Colours">
+  <!--
+    Modern Colours mark — three paint petals fanning from a common base.
+
+    Geometric redraw, not a trace. mark-detail.svg is the faithful trace and is
+    correct at large sizes, but it flattens into an unreadable blob below ~32px.
+    Here each petal is an ellipse rotated about a shared base point near the bottom
+    centre, which reproduces the logo's fan and survives down to 16px.
+
+    Colours sampled exactly from the supplied logo:
+      violet #8802C9 · yellow #FEEF03 · red #EB0102
+    Draw order matches the logo's stacking: violet behind, red in front.
+  -->
+  <g fill="none" stroke-width="11" stroke-linecap="round">
+    <ellipse stroke="#8802C9" cx="50" cy="38" rx="13" ry="23" transform="rotate(-38 50 72)"/>
+    <ellipse stroke="#FEEF03" cx="50" cy="38" rx="13" ry="23"/>
+    <ellipse stroke="#EB0102" cx="50" cy="38" rx="13" ry="23" transform="rotate(38 50 72)"/>
+  </g>
+</svg>

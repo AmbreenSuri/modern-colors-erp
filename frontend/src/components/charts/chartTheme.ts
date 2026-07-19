@@ -7,8 +7,8 @@ export const CHART = {
   add: hsl('var(--chart-add)'),
   deduct: hsl('var(--chart-deduct)'),
   discard: hsl('var(--chart-discard)'),
-  grid: 'hsl(var(--border))',
-  axis: 'hsl(var(--muted-foreground))',
+  grid: 'hsl(var(--chart-grid))',
+  axis: 'hsl(var(--chart-axis))',
   categorical: [
     hsl('var(--chart-1)'),
     hsl('var(--chart-2)'),
@@ -19,17 +19,24 @@ export const CHART = {
   ],
 } as const;
 
-// Semantic colors for the request statuses (matches the StatusBadge palette intent).
+// Semantic colours for the request statuses.
+// NOTE: these point at the SEVERITY tokens, not the categorical ramp. The ramp is
+// ordered for visual distinction and its hues moved when the palette changed to
+// Paint Chip (chart-1 went blue -> red), which would silently have turned
+// "Partial" red and "Rejected" indistinguishable from it. Binding status to the
+// severity language keeps the meaning stable no matter how the ramp is retuned.
 export const STATUS_COLOR: Record<string, string> = {
-  PENDING: hsl('var(--chart-3)'), // amber
-  IN_PROGRESS: hsl('var(--chart-4)'), // violet
-  APPROVED: hsl('var(--chart-2)'), // green
-  PARTIAL: hsl('var(--chart-1)'), // blue
-  REJECTED: hsl('var(--chart-discard)'), // red
+  PENDING: hsl('var(--warning)'), // amber — awaiting action
+  IN_PROGRESS: hsl('var(--brand-violet)'), // violet — partially actioned
+  APPROVED: hsl('var(--healthy)'), // green — done
+  PARTIAL: hsl('var(--info)'), // blue — partially fulfilled, not an alarm
+  REJECTED: hsl('var(--critical)'), // red — refused
 };
 
+// Departments are categorical, not semantic — any three distinct hues work, so
+// these track the ramp. Chosen to stay distinguishable from the status colours.
 export const DEPT_COLOR: Record<string, string> = {
-  PU: hsl('var(--chart-1)'),
-  ENAMEL: hsl('var(--chart-4)'),
-  POWDER: hsl('var(--chart-5)'),
+  PU: hsl('var(--chart-1)'), // logo red
+  ENAMEL: hsl('var(--chart-3)'), // logo violet
+  POWDER: hsl('var(--chart-5)'), // blue
 };

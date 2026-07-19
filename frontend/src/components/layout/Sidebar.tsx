@@ -15,11 +15,23 @@ import {
   Layers,
   FlaskConical,
   Truck,
-  Paintbrush,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/auth'
+import { LogoLockup } from '@/components/brand/Logo'
 import type { Role } from '@/types/api'
+
+// How each role is described under the wordmark. These are the CLIENT-FACING
+// names, which deliberately differ from the enum: ADMIN is the store desk, and
+// OVERSIGHT is what the factory owner calls "Admin".
+const ROLE_LABEL: Record<Role, string> = {
+  ADMIN: 'Store',
+  OVERSIGHT: 'Admin',
+  OPERATOR: 'Operator',
+  SUPERVISOR: 'Supervisor',
+  PRODUCTION_HEAD: 'Production',
+  DISPATCH: 'Dispatch',
+}
 
 // Phase 1 navigation. `roles` omitted = visible to every authenticated user.
 // Phase 1 screens are scoped to the Phase 1 roles (Store=ADMIN, Operator, Supervisor).
@@ -58,6 +70,12 @@ const navItems: { to: string; label: string; icon: typeof LayoutDashboard; roles
 export function Sidebar({ open = false, onNavigate }: { open?: boolean; onNavigate?: () => void }) {
   const { user } = useAuth()
   const items = navItems.filter((i) => !i.roles || (user && i.roles.includes(user.role)))
+  // A production head's department is more useful here than the generic role.
+  const roleLabel = user
+    ? user.role === 'PRODUCTION_HEAD' && user.department
+      ? `${user.department} Head`
+      : ROLE_LABEL[user.role]
+    : undefined
   return (
     <aside
       className={cn(
@@ -67,14 +85,8 @@ export function Sidebar({ open = false, onNavigate }: { open?: boolean; onNaviga
         open ? 'translate-x-0' : '-translate-x-full',
       )}
     >
-      <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
-          <Paintbrush className="h-4 w-4 text-primary-foreground" />
-        </div>
-        <div>
-          <div className="text-sm font-semibold leading-none">Modern Colours</div>
-          <div className="text-[10px] text-sidebar-foreground/60">Material Inward</div>
-        </div>
+      <div className="flex h-14 items-center border-b border-sidebar-border px-4">
+        <LogoLockup tone="light" size="sm" subtitle={roleLabel} />
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
@@ -86,24 +98,40 @@ export function Sidebar({ open = false, onNavigate }: { open?: boolean; onNaviga
             onClick={onNavigate}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
+                // `group` + the ::before rail below give the active item a brand-red
+                // paint-chip edge rather than a flat highlight.
+                'group relative flex items-center gap-3 overflow-hidden rounded-md px-3 py-2.5 text-sm font-medium',
+                'transition-colors duration-fast ease-out',
+                'before:absolute before:inset-y-1 before:left-0 before:w-1 before:rounded-r-full before:bg-primary',
+                'before:origin-left before:scale-x-0 before:transition-transform before:duration-base before:ease-spring',
                 isActive
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground before:scale-x-100'
                   : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
               )
             }
           >
-            <Icon className="h-4 w-4 shrink-0" />
-            {label}
+            {({ isActive }) => (
+              <>
+                <Icon
+                  className={cn(
+                    'h-4 w-4 shrink-0 transition-colors duration-fast',
+                    isActive ? 'text-primary' : 'text-sidebar-foreground/50 group-hover:text-sidebar-foreground/80'
+                  )}
+                />
+                {label}
+              </>
+            )}
           </NavLink>
         ))}
       </nav>
 
-      <div className="border-t border-sidebar-border p-4">
-        <div className="text-[10px] uppercase tracking-wide text-sidebar-foreground/50">
-          Phase 1
+      <div className="border-t border-sidebar-border px-4 py-3">
+        <div className="text-[10px] text-sidebar-foreground/45">
+          Modern Colours Pvt. Ltd.
         </div>
-        <div className="mt-0.5 text-xs text-sidebar-foreground/70">Material Inward Digitization</div>
+        <div className="mt-0.5 text-[10px] text-sidebar-foreground/35">
+          Material inward · Production · Dispatch
+        </div>
       </div>
     </aside>
   )

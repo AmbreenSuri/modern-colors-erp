@@ -1,11 +1,31 @@
 import * as React from 'react'
 import { cn } from '@/lib/utils'
 
-const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
+interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  /** Adds hover lift + press response. Use for cards that are actually clickable. */
+  interactive?: boolean
+  /** Bonds a colour swatch to the left edge — the "paint chip" signature. */
+  edge?: 'primary' | 'critical' | 'warning' | 'healthy' | 'info'
+}
+
+const EDGE_VAR: Record<NonNullable<CardProps['edge']>, string> = {
+  primary: '[--chip-edge-color:hsl(var(--primary))]',
+  critical: '[--chip-edge-color:hsl(var(--critical))]',
+  warning: '[--chip-edge-color:hsl(var(--warning))]',
+  healthy: '[--chip-edge-color:hsl(var(--healthy))]',
+  info: '[--chip-edge-color:hsl(var(--info))]',
+}
+
+const Card = React.forwardRef<HTMLDivElement, CardProps>(
+  ({ className, interactive, edge, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('rounded-lg border bg-card text-card-foreground shadow-sm', className)}
+      className={cn(
+        'rounded-lg border bg-card text-card-foreground shadow-elev-1',
+        interactive && 'tactile-lift cursor-pointer',
+        edge && cn('chip-edge pl-1', EDGE_VAR[edge]),
+        className
+      )}
       {...props}
     />
   )

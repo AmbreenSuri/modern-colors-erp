@@ -33,8 +33,13 @@ export function AppLayout() {
           subtitle={pageInfo.subtitle}
           onMenuClick={() => setSidebarOpen(!sidebarOpen)}
         />
+        {/* `key` on the route path remounts this wrapper on every navigation, so
+            the entrance animation replays per route rather than only on first
+            load. Transform+opacity only — no layout work during the transition. */}
         <main className="min-w-0 max-w-full overflow-x-clip p-4 lg:p-6">
-          <Outlet />
+          <div key={location.pathname} className="animate-route-in">
+            <Outlet />
+          </div>
         </main>
       </div>
 

@@ -60,22 +60,26 @@ export function ScanPanel({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <ScanLine className="h-4 w-4" /> {title}
+        <CardTitle className="flex items-center gap-2 text-title-3">
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <ScanLine className="h-4 w-4" />
+          </span>
+          {title}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <ErrorBoundary
           fallback={
-            <div className="rounded-lg border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
+            <div className="rounded-lg border border-warning-border bg-warning-surface p-6 text-center text-sm text-warning-foreground">
               Camera unavailable on this device — use manual entry below.
             </div>
           }
         >
           <Suspense
             fallback={
-              <div className="flex items-center justify-center gap-2 rounded-lg border bg-muted/30 py-10 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading scanner…
+              <div className="flex flex-col items-center justify-center gap-2 rounded-lg border bg-chip-50 py-12 text-sm text-chip-500">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                Loading scanner…
               </div>
             }
           >
@@ -84,7 +88,7 @@ export function ScanPanel({
           </Suspense>
         </ErrorBoundary>
 
-        {hint && <p className="text-center text-xs text-muted-foreground">{hint}</p>}
+        {hint && <p className="text-center text-xs text-chip-500">{hint}</p>}
 
         {manualOpen ? (
           <form
@@ -113,7 +117,7 @@ export function ScanPanel({
           <button
             type="button"
             onClick={() => setManualOpen(true)}
-            className="flex w-full items-center justify-center gap-1.5 border-t pt-3 text-xs text-muted-foreground hover:text-foreground"
+            className="tactile flex min-h-11 w-full items-center justify-center gap-1.5 border-t pt-3 text-xs font-medium text-chip-500 hover:text-primary"
           >
             <Keyboard className="h-3.5 w-3.5" /> Enter code manually (USB scanner / typing)
           </button>

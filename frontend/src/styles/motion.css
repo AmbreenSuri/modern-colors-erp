@@ -1,0 +1,199 @@
+/* =============================================================================
+   Modern Colours — motion layer
+   =============================================================================
+   Every animation in the product is defined here so timing and easing stay
+   consistent. All transforms are GPU-friendly (transform/opacity only — never
+   width/height/top/left), so nothing here forces layout during animation.
+
+   prefers-reduced-motion is honoured globally at the bottom of this file:
+   animations collapse to a near-instant fade rather than being removed, so the
+   UI still signals that something changed without any movement.
+   ============================================================================= */
+
+@layer utilities {
+  /* --- Entrances ---------------------------------------------------------- */
+  @keyframes mc-fade-up {
+    from { opacity: 0; transform: translate3d(0, 10px, 0); }
+    to   { opacity: 1; transform: translate3d(0, 0, 0); }
+  }
+  @keyframes mc-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes mc-scale-in {
+    from { opacity: 0; transform: scale3d(0.96, 0.96, 1); }
+    to   { opacity: 1; transform: scale3d(1, 1, 1); }
+  }
+  /* Route change: content arrives with a slight lift, never a slide-jank */
+  @keyframes mc-route-in {
+    from { opacity: 0; transform: translate3d(0, 8px, 0) scale3d(0.995, 0.995, 1); }
+    to   { opacity: 1; transform: translate3d(0, 0, 0) scale3d(1, 1, 1); }
+  }
+
+  /* --- Feedback ----------------------------------------------------------- */
+  /* Success pulse for the scan loop — a ring that expands and fades once. */
+  @keyframes mc-pulse-ring {
+    0%   { opacity: 0.55; transform: scale3d(0.85, 0.85, 1); }
+    70%  { opacity: 0;    transform: scale3d(1.35, 1.35, 1); }
+    100% { opacity: 0;    transform: scale3d(1.35, 1.35, 1); }
+  }
+  /* Draws the success tick on. */
+  @keyframes mc-draw-check {
+    from { stroke-dashoffset: 48; }
+    to   { stroke-dashoffset: 0; }
+  }
+  /* Critical alerts breathe slowly — noticeable in peripheral vision without
+     the aggression of a flash. */
+  @keyframes mc-breathe {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.62; }
+  }
+  /* Shake for a rejected action (over-deduction, bad scan). */
+  @keyframes mc-shake {
+    0%, 100% { transform: translate3d(0, 0, 0); }
+    20%      { transform: translate3d(-5px, 0, 0); }
+    40%      { transform: translate3d(4px, 0, 0); }
+    60%      { transform: translate3d(-3px, 0, 0); }
+    80%      { transform: translate3d(2px, 0, 0); }
+  }
+
+  /* The tagline strip. Content is rendered twice, so translating by exactly
+     -50% lands the second copy where the first began — a seamless loop. */
+  @keyframes mc-marquee {
+    from { transform: translate3d(0, 0, 0); }
+    to   { transform: translate3d(-50%, 0, 0); }
+  }
+
+  /* --- Loading ------------------------------------------------------------ */
+  /* Skeleton sheen. Uses transform, so it does not repaint the whole block. */
+  @keyframes mc-shimmer {
+    from { transform: translate3d(-100%, 0, 0); }
+    to   { transform: translate3d(100%, 0, 0); }
+  }
+  /* The AI-extraction wait: petals cycle like paint mixing. */
+  @keyframes mc-orbit {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  @keyframes mc-progress-indeterminate {
+    0%   { transform: translate3d(-100%, 0, 0) scaleX(0.4); }
+    50%  { transform: translate3d(0, 0, 0) scaleX(0.7); }
+    100% { transform: translate3d(100%, 0, 0) scaleX(0.4); }
+  }
+
+  /* --- Applied classes ---------------------------------------------------- */
+  .animate-fade-up   { animation: mc-fade-up var(--dur-base) var(--ease-out) both; }
+  .animate-fade-in   { animation: mc-fade-in var(--dur-base) var(--ease-out) both; }
+  .animate-scale-in  { animation: mc-scale-in var(--dur-base) var(--ease-out) both; }
+  .animate-route-in  { animation: mc-route-in var(--dur-slow) var(--ease-out) both; }
+  .animate-pulse-ring{ animation: mc-pulse-ring var(--dur-deliberate) var(--ease-out) both; }
+  .animate-breathe   { animation: mc-breathe 2.4s var(--ease-in-out) infinite; }
+  .animate-shake     { animation: mc-shake 420ms var(--ease-in-out) both; }
+  .animate-orbit     { animation: mc-orbit 1.6s linear infinite; }
+
+  /* Staggered list/card entrance. Depth is capped at 12 so a 400-row table does
+     not end up with a 20-second cascade — beyond that everything lands together. */
+  .stagger > * { animation: mc-fade-up var(--dur-base) var(--ease-out) both; }
+  .stagger > *:nth-child(1)  { animation-delay: calc(var(--stagger) * 0); }
+  .stagger > *:nth-child(2)  { animation-delay: calc(var(--stagger) * 1); }
+  .stagger > *:nth-child(3)  { animation-delay: calc(var(--stagger) * 2); }
+  .stagger > *:nth-child(4)  { animation-delay: calc(var(--stagger) * 3); }
+  .stagger > *:nth-child(5)  { animation-delay: calc(var(--stagger) * 4); }
+  .stagger > *:nth-child(6)  { animation-delay: calc(var(--stagger) * 5); }
+  .stagger > *:nth-child(7)  { animation-delay: calc(var(--stagger) * 6); }
+  .stagger > *:nth-child(8)  { animation-delay: calc(var(--stagger) * 7); }
+  .stagger > *:nth-child(9)  { animation-delay: calc(var(--stagger) * 8); }
+  .stagger > *:nth-child(10) { animation-delay: calc(var(--stagger) * 9); }
+  .stagger > *:nth-child(11) { animation-delay: calc(var(--stagger) * 10); }
+  .stagger > *:nth-child(n+12) { animation-delay: calc(var(--stagger) * 11); }
+
+  /* Skeleton block.
+     `background-color` is set with the shorthand-free longhand and marked
+     important-by-specificity via the doubled class: callers routinely pass
+     Tailwind sizing/rounding utilities to <Skeleton>, and inside @layer
+     utilities those would otherwise win and blank out the fill. */
+  .skeleton.skeleton {
+    position: relative;
+    overflow: hidden;
+    background-color: hsl(var(--chip-200));
+    border-radius: var(--radius-sm);
+  }
+  .skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--chip-50) / 0.9),
+      transparent
+    );
+    animation: mc-shimmer 1.4s var(--ease-in-out) infinite;
+  }
+
+  /* --- Tactile press ------------------------------------------------------
+     The single most important "premium" cue: everything clickable must give
+     weight back. Scale down fast on press, spring back on release. */
+  .tactile {
+    transition:
+      transform var(--dur-fast) var(--ease-spring),
+      box-shadow var(--dur-fast) var(--ease-out),
+      background-color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
+  }
+  .tactile:active:not(:disabled) {
+    transform: scale3d(0.97, 0.97, 1);
+    transition-duration: var(--dur-instant);
+  }
+  /* Cards lift toward the pointer */
+  .tactile-lift {
+    transition:
+      transform var(--dur-base) var(--ease-out),
+      box-shadow var(--dur-base) var(--ease-out),
+      border-color var(--dur-base) var(--ease-out);
+  }
+  @media (hover: hover) {
+    .tactile-lift:hover {
+      transform: translate3d(0, -2px, 0);
+      box-shadow: var(--elev-3);
+    }
+  }
+  .tactile-lift:active {
+    transform: translate3d(0, 0, 0) scale3d(0.995, 0.995, 1);
+    transition-duration: var(--dur-instant);
+  }
+
+  /* Tabular figures — stops KPI numbers jittering as they count up. */
+  .tabular { font-variant-numeric: tabular-nums; }
+}
+
+/* ---------------------------------------------------------------------------
+   Reduced motion. We do not simply disable animation: an element that animates
+   in with `both` fill would otherwise stay stuck at its "from" state (invisible).
+   Instead every animation collapses to an instant, movement-free fade.
+   --------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .stagger > * { animation-delay: 0ms !important; }
+  /* Continuous loops must STOP, not run at 0.01ms — a marquee cycling instantly
+     is far worse than a still one. Freeze them at their start position. */
+  [class*='mc-marquee'],
+  .animate-orbit,
+  .animate-breathe {
+    animation: none !important;
+  }
+  .tactile:active:not(:disabled),
+  .tactile-lift:hover,
+  .tactile-lift:active {
+    transform: none !important;
+  }
+  .skeleton::after { animation: none !important; }
+}

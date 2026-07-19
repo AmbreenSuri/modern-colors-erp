@@ -1,65 +1,100 @@
+/* Modern Colours — "Paint Chip" design system entry point.
+   Design tokens and the motion vocabulary live in ./styles/*; this file only
+   wires them up and sets global base styles. Import order matters: tokens must
+   be defined before anything consumes them. */
+/* NOTE: every @import must appear before any other rule — a CSS @import placed
+   after the @tailwind directives is silently DROPPED by the parser, which
+   removes the whole motion layer without any build error. */
+@import './styles/tokens.css';
+@import './styles/motion.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --background: 210 20% 98%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 217 91% 40%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 217 91% 40%;
-    --radius: 0.375rem;
-    --sidebar-background: 222 47% 11%;
-    --sidebar-foreground: 210 40% 96%;
-    --sidebar-border: 217 33% 17%;
-    --sidebar-accent: 217 33% 17%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --success: 142 76% 36%;
-    --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 100%;
-
-    /* Chart palette — consistent semantic language across every dashboard.
-       add = green (into stock), deduct = blue (issued out), discard = red (wasted),
-       plus a categorical ramp for departments / materials / statuses. */
-    --chart-add: 142 71% 45%;
-    --chart-deduct: 217 91% 55%;
-    --chart-discard: 0 84% 60%;
-    --chart-1: 217 91% 55%; /* blue */
-    --chart-2: 142 71% 45%; /* green */
-    --chart-3: 38 92% 50%;  /* amber */
-    --chart-4: 280 65% 60%; /* violet */
-    --chart-5: 172 66% 45%; /* teal */
-    --chart-6: 340 75% 55%; /* pink */
-  }
-
   * {
     @apply border-border;
   }
 
+  html {
+    -webkit-tap-highlight-color: transparent; /* we render our own press states */
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
-    font-feature-settings: 'rlig' 1, 'calt' 1;
+    font-feature-settings: 'rlig' 1, 'calt' 1, 'ss01' 1;
+    /* Paper-like canvas: an extremely subtle warm wash so large white areas read
+       as stock rather than as a blank screen. Fixed so it never scrolls. */
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, hsl(var(--brand-red) / 0.045), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 100% 0%, hsl(var(--brand-amber) / 0.035), transparent 55%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+  }
+
+  /* Focus: a brand-red ring that is unmistakably visible for keyboard users but
+     never appears on plain mouse clicks. Applied globally so every interactive
+     element inherits an accessible focus state by default. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Headings carry slightly tighter tracking — the "designed" feel comes from
+     type discipline as much as from colour. */
+  h1, h2, h3, h4 {
+    letter-spacing: -0.018em;
+  }
+
+  /* Numerals in data contexts should never shift width as values change. */
+  th, td, .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Chrome paints autofilled inputs a hard-coded pale blue that overrides our
+     surfaces — anyone with a saved password sees an off-brand form. The colour
+     cannot be set directly, so we mask it with an inset shadow the size of the
+     field and re-assert the text colour. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: hsl(var(--foreground));
+    -webkit-box-shadow: 0 0 0 1000px hsl(var(--card)) inset;
+    box-shadow: 0 0 0 1000px hsl(var(--card)) inset;
+    caret-color: hsl(var(--foreground));
+    transition: background-color 9999s ease-in-out 0s;
   }
 }
 
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
+  }
+
+  /* Elevation utilities mapped to the token scale. */
+  .elev-1 { box-shadow: var(--elev-1); }
+  .elev-2 { box-shadow: var(--elev-2); }
+  .elev-3 { box-shadow: var(--elev-3); }
+  .elev-4 { box-shadow: var(--elev-4); }
+  .elev-5 { box-shadow: var(--elev-5); }
+
+  /* The signature paint-chip edge: a colour swatch bonded to the left of a card
+       or row. Used for severity (critical/warning/healthy) and for brand accents. */
+  .chip-edge {
+    position: relative;
+    overflow: hidden;
+  }
+  .chip-edge::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: var(--chip-edge-color, hsl(var(--primary)));
   }
 }

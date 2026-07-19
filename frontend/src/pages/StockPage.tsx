@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { SeverityBadge, stockSeverity } from '@/components/ui/severity'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { toast } from '@/hooks/useToast'
 
@@ -325,9 +326,18 @@ export function StockPage() {
             >
               <ChevronLeft className="h-4 w-4" /> Back to scan
             </button>
-            <CardTitle className="flex items-center justify-between text-base">
+            <CardTitle className="flex items-center justify-between gap-2 text-base">
               <span className="font-mono">{unit.uniqueId}</span>
-              <Badge variant="default">{unit.balanceKg} kg on unit</Badge>
+              {/* The balance carries a severity, not the brand colour: a red pill
+                  on a healthy 24.8 kg unit reads as an alarm in the severity
+                  language used everywhere else on the floor. */}
+              <SeverityBadge
+                severity={stockSeverity(unit.balanceKg)}
+                icon={false}
+                className="shrink-0 whitespace-nowrap"
+              >
+                {unit.balanceKg} kg on unit
+              </SeverityBadge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">

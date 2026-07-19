@@ -15,6 +15,7 @@ import { AuditPage } from '@/pages/AuditPage'
 import { RequestsPage } from '@/pages/RequestsPage'
 import { StockPage } from '@/pages/StockPage'
 import { StockLevelsPage } from '@/pages/StockLevelsPage'
+import { DesignSystemPage } from '@/pages/DesignSystemPage'
 import type { Role } from '@/types/api'
 
 // Analytics dashboards pull in the charting library — lazy-load so recharts is a
@@ -77,6 +78,13 @@ function AuthedRoutes() {
   if (!user) {
     return (
       <Routes>
+        {/* Design-system reference. Dev-only (import.meta.env.DEV is statically
+            false in production, so this route and its chunk are tree-shaken out
+            of the shipped bundle) and deliberately reachable without a login so
+            the design language can be reviewed without factory credentials. */}
+        {import.meta.env.DEV && (
+          <Route path="/design-system" element={<DesignSystemPage />} />
+        )}
         <Route path="*" element={<LoginPage />} />
       </Routes>
     )

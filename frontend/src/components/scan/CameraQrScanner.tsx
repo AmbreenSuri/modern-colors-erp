@@ -216,10 +216,18 @@ export function CameraQrScanner({ onResult, paused = false, autoStart = true }: 
           <button
             type="button"
             onClick={startCamera}
-            className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-white/90"
+            className="tactile absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm text-white/90"
           >
-            <Camera className="h-9 w-9" />
-            <span className="font-medium">Tap to start camera</span>
+            {/* A brand-red target ring rather than a bare icon: it reads as
+                "aim here", and gives the tap a visible affordance on a dark panel. */}
+            <span className="relative flex h-20 w-20 items-center justify-center">
+              <span
+                aria-hidden="true"
+                className="animate-breathe absolute inset-0 rounded-full border-2 border-primary/70"
+              />
+              <Camera className="h-9 w-9" />
+            </span>
+            <span className="text-base font-semibold">Tap to start camera</span>
           </button>
         )}
 

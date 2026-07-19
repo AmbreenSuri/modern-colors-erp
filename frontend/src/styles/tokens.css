@@ -1,0 +1,205 @@
+/* =============================================================================
+   Modern Colours — "Paint Chip" design system
+   =============================================================================
+   Single source of truth for colour, elevation, radii and motion.
+
+   Direction (from Modern_Colours_Design_Options.pdf, Option C):
+   bright, friendly, energetic — led by the logo's red over generous white space,
+   with warm amber accents. Closest to the physical paint-swatch world;
+   approachable for every operator, still clean and modern.
+
+   Brand colours are sampled from the supplied logo, not invented:
+     red #EB0102 · yellow #FEEF03 · violet #8802C9 · ink #000000
+
+   Everything downstream (Tailwind classes, shadcn components, charts) reads
+   these variables, so the whole product re-themes from this one file.
+
+   Colours are stored as bare HSL triplets ("0 99% 46%") because Tailwind wraps
+   them as hsl(var(--token)) — this also lets us do hsl(var(--x) / 0.5) for alpha.
+   ============================================================================= */
+
+@layer base {
+  :root {
+    /* -------------------------------------------------------------------
+       1. BRAND — the raw logo colours. Use via semantic tokens below,
+       not directly, so a rebrand is a one-line change.
+       ------------------------------------------------------------------- */
+    --brand-red: 0 99% 46%;        /* #EB0102 — the wordmark red, our primary */
+    --brand-yellow: 56 99% 51%;    /* #FEEF03 — pure logo yellow; too hot for large fills */
+    --brand-violet: 279 98% 40%;   /* #8802C9 — the third petal, used for accents/charts */
+    --brand-amber: 38 95% 50%;     /* warm amber — the readable partner to logo yellow */
+
+    /* Paint-chip neutrals. Not grey-blue: warmed very slightly toward red so
+       white space feels like paper stock rather than a screen. */
+    --paper: 30 25% 99%;           /* app canvas */
+    --chip-50: 30 20% 97%;
+    --chip-100: 28 18% 94%;
+    --chip-200: 26 15% 88%;
+    --chip-300: 24 12% 79%;
+    --chip-400: 22 10% 62%;
+    --chip-500: 22 9% 47%;
+    --chip-600: 22 11% 36%;
+    --chip-700: 22 14% 26%;
+    --chip-800: 22 18% 17%;
+    --chip-900: 24 24% 11%;
+    --chip-950: 24 30% 7%;
+
+    /* -------------------------------------------------------------------
+       2. SEMANTIC SURFACES
+       ------------------------------------------------------------------- */
+    --background: var(--paper);
+    --foreground: var(--chip-900);
+    --card: 0 0% 100%;
+    --card-foreground: var(--chip-900);
+    --popover: 0 0% 100%;
+    --popover-foreground: var(--chip-900);
+
+    --primary: var(--brand-red);
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: var(--chip-100);
+    --secondary-foreground: var(--chip-800);
+    --muted: var(--chip-100);
+    --muted-foreground: var(--chip-500);
+    --accent: var(--chip-100);
+    --accent-foreground: var(--chip-900);
+
+    --destructive: 0 84% 47%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: var(--chip-200);
+    --input: var(--chip-300);
+    --ring: var(--brand-red);
+
+    /* Sidebar — deep warm ink so the coloured logo mark and the red active
+       state both sing against it. */
+    --sidebar-background: var(--chip-950);
+    --sidebar-foreground: 30 15% 82%;
+    --sidebar-border: 24 20% 16%;
+    --sidebar-accent: 24 22% 14%;
+    --sidebar-accent-foreground: 0 0% 100%;
+
+    /* -------------------------------------------------------------------
+       3. STATUS / SEVERITY — the operational alert language.
+       Three levels, deliberately distinct in HUE, not just lightness, so they
+       read instantly under bad factory lighting and survive colour-blindness
+       when paired with the icon + label the components always render.
+       ------------------------------------------------------------------- */
+    --critical: 0 84% 45%;         /* act now — low stock, blocked, over-deduction */
+    --critical-foreground: 0 0% 100%;
+    --critical-surface: 0 86% 97%;
+    --critical-border: 0 80% 88%;
+
+    --warning: var(--brand-amber);  /* attention — ageing, partial, provisional */
+    --warning-foreground: 30 90% 12%;
+    --warning-surface: 42 96% 95%;
+    --warning-border: 40 90% 82%;
+
+    --healthy: 152 62% 34%;         /* all good — confirmed, dispatched, in stock */
+    --healthy-foreground: 0 0% 100%;
+    --healthy-surface: 150 60% 96%;
+    --healthy-border: 150 45% 84%;
+
+    --info: 214 84% 46%;            /* neutral information, never an alarm */
+    --info-foreground: 0 0% 100%;
+    --info-surface: 214 90% 97%;
+    --info-border: 214 75% 88%;
+
+    /* Legacy aliases — several screens still reference success/*. Kept pointing
+       at the new tokens so nothing breaks while the rollout proceeds. */
+    --success: var(--healthy);
+    --success-foreground: var(--healthy-foreground);
+
+    /* -------------------------------------------------------------------
+       4. CHARTS — purposeful, not decorative.
+       Movement colours keep their existing MEANING (add/deduct/discard) because
+       operators already read them that way; only the hues are re-tuned to the
+       paint-chip palette. The categorical ramp leads with the logo's own three
+       petals so a chart looks unmistakably like this company's chart.
+       ------------------------------------------------------------------- */
+    --chart-add: 152 62% 38%;      /* into stock */
+    --chart-deduct: 214 84% 50%;   /* issued out */
+    --chart-discard: 0 84% 52%;    /* wasted */
+
+    --chart-1: 0 99% 46%;          /* logo red */
+    --chart-2: 38 95% 50%;         /* amber */
+    --chart-3: 279 98% 45%;        /* logo violet */
+    --chart-4: 152 62% 38%;        /* green */
+    --chart-5: 214 84% 50%;        /* blue */
+    --chart-6: 330 72% 51%;        /* magenta */
+    --chart-grid: 26 15% 90%;
+    --chart-axis: 22 10% 55%;
+
+    /* -------------------------------------------------------------------
+       5. RADII — paint chips are cards with a soft, consistent corner.
+       ------------------------------------------------------------------- */
+    --radius: 0.625rem;            /* 10px base */
+    --radius-sm: 0.375rem;
+    --radius-lg: 0.875rem;
+    --radius-xl: 1.25rem;
+
+    /* -------------------------------------------------------------------
+       6. ELEVATION — five deliberate layers. Warm-tinted shadows (not black)
+       so cards feel like paper on paper instead of floating in grey.
+       ------------------------------------------------------------------- */
+    --shadow-color: 24 30% 12%;
+    --elev-1: 0 1px 2px -1px hsl(var(--shadow-color) / 0.10),
+              0 1px 3px 0 hsl(var(--shadow-color) / 0.06);
+    --elev-2: 0 2px 4px -2px hsl(var(--shadow-color) / 0.10),
+              0 4px 8px -2px hsl(var(--shadow-color) / 0.08);
+    --elev-3: 0 4px 8px -4px hsl(var(--shadow-color) / 0.12),
+              0 10px 20px -6px hsl(var(--shadow-color) / 0.10);
+    --elev-4: 0 8px 16px -8px hsl(var(--shadow-color) / 0.16),
+              0 20px 32px -12px hsl(var(--shadow-color) / 0.12);
+    --elev-5: 0 16px 32px -12px hsl(var(--shadow-color) / 0.20),
+              0 32px 64px -24px hsl(var(--shadow-color) / 0.16);
+    /* Focus/press glow in brand red */
+    --glow-primary: 0 0 0 3px hsl(var(--brand-red) / 0.22);
+
+    /* -------------------------------------------------------------------
+       7. MOTION — one easing vocabulary for the whole product.
+       Nothing linear: every curve has weight so interactions feel physical.
+       ------------------------------------------------------------------- */
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);        /* entrances — decisive settle */
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);     /* moves between two states */
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);  /* tactile overshoot on press */
+    --ease-exit: cubic-bezier(0.4, 0, 1, 1);           /* exits — accelerate away */
+
+    --dur-instant: 90ms;    /* press feedback: must beat perception */
+    --dur-fast: 150ms;      /* hover, colour, small state */
+    --dur-base: 240ms;      /* the default: cards, popovers */
+    --dur-slow: 380ms;      /* page/route transitions */
+    --dur-deliberate: 640ms;/* celebratory: scan success, confirmation */
+
+    --stagger: 45ms;        /* per-item delay in a list cascade */
+  }
+
+  /* Dark mode is not a shipped feature yet, but tokens are declared so any
+     component written against them cannot break if it is switched on later. */
+  .dark {
+    --background: var(--chip-950);
+    --foreground: 30 15% 92%;
+    --card: var(--chip-900);
+    --card-foreground: 30 15% 92%;
+    --popover: var(--chip-900);
+    --popover-foreground: 30 15% 92%;
+    --secondary: var(--chip-800);
+    --secondary-foreground: 30 15% 92%;
+    --muted: var(--chip-800);
+    --muted-foreground: var(--chip-400);
+    --accent: var(--chip-800);
+    --accent-foreground: 30 15% 92%;
+    --border: 24 20% 20%;
+    --input: 24 20% 24%;
+    --chart-grid: 24 18% 20%;
+    --chart-axis: 24 10% 60%;
+    --critical-surface: 0 60% 14%;
+    --critical-border: 0 50% 26%;
+    --warning-surface: 38 60% 14%;
+    --warning-border: 38 50% 26%;
+    --healthy-surface: 152 45% 12%;
+    --healthy-border: 152 35% 24%;
+    --info-surface: 214 60% 14%;
+    --info-border: 214 50% 26%;
+  }
+}

@@ -42,3 +42,11 @@ coverage/
 
 # Docker volumes
 .docker-data/
+
+# Supplier documents — real tax invoices contain GSTIN, PAN and bank details.
+# These are shared for testing only and must never be committed.
+WhatsApp*.zip
+WhatsApp*.jpeg
+WhatsApp*.jpg
+*invoice*.jpeg
+*invoice*.jpg
