@@ -12,6 +12,8 @@ export function roleLabel(user: Pick<AuthUser, 'role' | 'department'>): string {
       return 'Store'
     case 'OVERSIGHT':
       return 'Admin'
+    case 'DISPATCH':
+      return 'Dispatch'
     case 'PRODUCTION_HEAD':
       return user.department ? `${DEPT_LABEL[user.department]} Head` : 'Production Head'
     case 'SUPERVISOR':

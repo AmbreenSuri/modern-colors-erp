@@ -18,6 +18,9 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ProductionRequestModule } from './modules/production-request/production-request.module';
 import { StockModule } from './modules/stock/stock.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { BatchModule } from './modules/batch/batch.module';
+import { ProductionOutputModule } from './modules/production-output/production-output.module';
+import { FinishedGoodsModule } from './modules/finished-goods/finished-goods.module';
 
 @Module({
   imports: [
@@ -38,6 +41,9 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
     ProductionRequestModule,
     StockModule,
     AnalyticsModule,
+    BatchModule,
+    ProductionOutputModule,
+    FinishedGoodsModule,
   ],
   controllers: [HealthController],
 })

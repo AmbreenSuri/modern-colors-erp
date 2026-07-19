@@ -1,6 +1,12 @@
 // API domain types mirroring the backend responses.
 
-export type Role = 'ADMIN' | 'SUPERVISOR' | 'OPERATOR' | 'OVERSIGHT' | 'PRODUCTION_HEAD'
+export type Role =
+  | 'ADMIN'
+  | 'SUPERVISOR'
+  | 'OPERATOR'
+  | 'OVERSIGHT'
+  | 'PRODUCTION_HEAD'
+  | 'DISPATCH' // Phase 3 — finished-goods dispatch only
 export type Department = 'PU' | 'ENAMEL' | 'POWDER'
 
 export interface AuthUser {
@@ -134,6 +140,9 @@ export interface ProductionRequestItem {
   issuedKg: number
   reviewedAt: string | null
   fulfilledAt: string | null
+  // Phase 3 — which batch this line's material is for (per line, not per request).
+  batchId?: string | null
+  batch?: { id: string; batchNumber: string; status: BatchStatus } | null
 }
 
 export interface ProductionRequest {
@@ -344,5 +353,110 @@ export interface Overview {
     movements: (StockTransaction & {
       material?: { uniqueId: string; materialName: string; sku: string | null }
     })[]
+  }
+}
+
+// ── Phase 3: Batches, Finished Goods & Dispatch ──
+export type BatchStatus = 'OPEN' | 'OUTPUT_RECORDED' | 'CONFIRMED' | 'CLOSED'
+export type FgStatus = 'GENERATED' | 'READY' | 'DISPATCHED'
+
+export interface Batch {
+  id: string
+  batchNumber: string
+  department: Department
+  status: BatchStatus
+  note: string | null
+  createdAt: string
+  createdBy?: { id: string; name: string }
+  locked: boolean
+  totals: {
+    lineCount: number
+    requestCount: number
+    requestedKg: number
+    approvedKg: number
+    issuedKg: number
+  }
+  _count?: { requestItems: number; productionOutputs: number; finishedGoods: number }
+}
+
+export interface ProductionOutput {
+  id: string
+  batchId: string
+  productName: string
+  packageCount: number
+  sizePerPackage: number
+  sizeUnit: string
+  productionDate: string
+  shade: string | null
+  productSku: string | null
+  notes: string | null
+  confirmed: boolean
+  confirmedAt: string | null
+  fgGeneratedAt: string | null
+  createdAt: string
+  batch?: { id: string; batchNumber: string; department: Department; status: BatchStatus }
+  recordedBy?: { id: string; name: string }
+  confirmedBy?: { id: string; name: string } | null
+  _count?: { finishedGoods: number }
+}
+
+export interface FinishedGood {
+  id: string
+  uniqueId: string
+  productName: string
+  sizePerPackage: number
+  sizeUnit: string
+  status: FgStatus
+  dispatchedAt: string | null
+  dispatchNote: string | null
+  createdAt: string
+  batch?: { id: string; batchNumber: string; department: Department }
+  output?: { id: string; productName: string; productionDate: string; shade: string | null }
+  dispatchedBy?: { id: string; name: string } | null
+  qrCode?: { payload: unknown; imageRef: string | null }
+}
+
+export interface DispatchReady {
+  total: number
+  batches: {
+    batchId: string
+    batchNumber: string
+    department: string
+    productName: string
+    pending: number
+    units: FinishedGood[]
+  }[]
+}
+
+export interface DispatchHistory {
+  recent: FinishedGood[]
+  todayCount: number
+  totalPending: number
+}
+
+export interface BatchTrace {
+  batch: { id: string; batchNumber: string; department: Department; status: BatchStatus; note: string | null; createdAt: string; createdBy?: { name: string } }
+  in: {
+    lineCount: number
+    requestCount: number
+    totalIssuedKg: number
+    materials: {
+      lineId: string
+      materialName: string
+      sku: string | null
+      requestedKg: number
+      approvedKg: number | null
+      issuedKg: number
+      status: RequestStatus
+      issues: { transactionId: string; quantityKg: number; at: string; by?: { name: string }; unit: { uniqueId: string; materialName: string; supplier: string | null; poNumber: string | null; arrivedAt: string | null } | null }[]
+    }[]
+    sources: { poId: string | null; poNumber: string | null; supplier: string | null; unitIds: string[] }[]
+  }
+  out: {
+    outputCount: number
+    confirmedCount: number
+    fgTotal: number
+    fgDispatched: number
+    outputs: (ProductionOutput & { finishedGoods: { id: string; uniqueId: string; status: FgStatus; dispatchedAt: string | null; dispatchedBy?: { name: string } | null }[] })[]
   }
 }

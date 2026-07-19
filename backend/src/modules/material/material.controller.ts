@@ -7,14 +7,22 @@ import {
   StreamableFile,
   UseGuards,
 } from '@nestjs/common';
-import { MaterialStatus } from '@prisma/client';
+import { MaterialStatus, Role } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { MaterialService } from './material.service';
 import { QrService, QrPayload, LabelInput } from '../qr/qr.service';
 
+/**
+ * Raw-material units, QR images and label sheets. These are Phase 1 + oversight data:
+ * the Store (ADMIN), Operators, Supervisors and the view-only Admin. Production heads
+ * do not browse raw units directly, and the Phase 3 DISPATCH role must never see raw
+ * material at all — the class-level gate below enforces that server-side.
+ */
 @Controller()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN, Role.OPERATOR, Role.SUPERVISOR, Role.OVERSIGHT)
 export class MaterialController {
   constructor(
     private readonly materials: MaterialService,

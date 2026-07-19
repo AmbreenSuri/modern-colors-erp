@@ -22,12 +22,24 @@ import { CatalogueService } from './catalogue.service';
 import { CreateCatalogueItemDto } from './dto/create-catalogue-item.dto';
 import { UpdateCatalogueItemDto } from './dto/update-catalogue-item.dto';
 
+// Catalogue reads are needed by Phase 1 roles (PO review) and by production heads (the
+// material picker). The Phase 3 DISPATCH role is excluded — it deals only in finished
+// goods. Write operations keep their own stricter per-route gates below.
+const CATALOGUE_READ_ROLES = [
+  Role.ADMIN,
+  Role.OPERATOR,
+  Role.SUPERVISOR,
+  Role.OVERSIGHT,
+  Role.PRODUCTION_HEAD,
+] as const;
+
 @Controller('catalogue')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(...CATALOGUE_READ_ROLES)
 export class CatalogueController {
   constructor(private readonly catalogue: CatalogueService) {}
 
-  // Read + match: any authenticated user (operators need it during PO review).
+  // Read + match: Phase 1 roles + production heads (needed during PO review / picking).
   @Get()
   findAll(
     @Query('search') search?: string,

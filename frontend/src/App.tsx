@@ -22,6 +22,9 @@ import type { Role } from '@/types/api'
 const OversightPage = lazy(() => import('@/pages/OversightPage').then((m) => ({ default: m.OversightPage })))
 const StoreDashboardPage = lazy(() => import('@/pages/StoreDashboardPage').then((m) => ({ default: m.StoreDashboardPage })))
 const HeadDashboardPage = lazy(() => import('@/pages/HeadDashboardPage').then((m) => ({ default: m.HeadDashboardPage })))
+const BatchesPage = lazy(() => import('@/pages/BatchesPage').then((m) => ({ default: m.BatchesPage })))
+const ProductionOutputPage = lazy(() => import('@/pages/ProductionOutputPage').then((m) => ({ default: m.ProductionOutputPage })))
+const DispatchPage = lazy(() => import('@/pages/DispatchPage').then((m) => ({ default: m.DispatchPage })))
 
 // Phase 1 screens belong to the Phase 1 roles (Store=ADMIN, Operator, Supervisor).
 const PHASE1_ROLES: Role[] = ['ADMIN', 'OPERATOR', 'SUPERVISOR']
@@ -47,6 +50,10 @@ function HomeRoute() {
   // Production heads land on their scoped analytics dashboard.
   if (user?.role === 'PRODUCTION_HEAD') {
     return <Navigate to="/my" replace />
+  }
+  // Dispatch lands straight on its scan screen (it has nothing else).
+  if (user?.role === 'DISPATCH') {
+    return <Navigate to="/dispatch" replace />
   }
   // Store (ADMIN) lands on the Store analytics dashboard.
   if (user?.role === 'ADMIN') {
@@ -85,6 +92,9 @@ function AuthedRoutes() {
         <Route path="oversight" element={<RequireRole roles={['OVERSIGHT']}><Suspense fallback={<DashboardFallback />}><OversightPage /></Suspense></RequireRole>} />
         <Route path="store" element={<RequireRole roles={['ADMIN']}><Suspense fallback={<DashboardFallback />}><StoreDashboardPage /></Suspense></RequireRole>} />
         <Route path="my" element={<RequireRole roles={['PRODUCTION_HEAD']}><Suspense fallback={<DashboardFallback />}><HeadDashboardPage /></Suspense></RequireRole>} />
+        <Route path="batches" element={<RequireRole roles={['PRODUCTION_HEAD', 'ADMIN', 'OVERSIGHT']}><Suspense fallback={<DashboardFallback />}><BatchesPage /></Suspense></RequireRole>} />
+        <Route path="production-output" element={<RequireRole roles={['PRODUCTION_HEAD']}><Suspense fallback={<DashboardFallback />}><ProductionOutputPage /></Suspense></RequireRole>} />
+        <Route path="dispatch" element={<RequireRole roles={['DISPATCH']}><Suspense fallback={<DashboardFallback />}><DispatchPage /></Suspense></RequireRole>} />
         <Route path="purchase-orders" element={<RequireRole roles={PHASE1_ROLES}><PurchaseOrdersPage /></RequireRole>} />
         <Route path="review" element={<RequireRole roles={PHASE1_ROLES}><ReviewPage /></RequireRole>} />
         <Route path="review/:poId" element={<RequireRole roles={PHASE1_ROLES}><ReviewPage /></RequireRole>} />

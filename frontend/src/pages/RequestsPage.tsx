@@ -4,6 +4,7 @@ import { PackagePlus, Send, Search, X, ClipboardList, Plus, Trash2, Check, Packa
 import { api, ApiError } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import type {
+  Batch,
   CatalogueItem,
   Paginated,
   ProductionRequest,
@@ -155,6 +156,7 @@ function RequestCard({
               <TableRow>
                 <TableHead className="w-8">#</TableHead>
                 <TableHead className="min-w-[160px]">Material</TableHead>
+                <TableHead>Batch</TableHead>
                 <TableHead>SKU</TableHead>
                 <TableHead className="text-right">Requested</TableHead>
                 <TableHead className="text-right">Approved</TableHead>
@@ -171,6 +173,15 @@ function RequestCard({
                     {it.materialName}
                     {it.status === 'REJECTED' && it.rejectionReason && (
                       <div className="text-xs font-normal text-destructive">Reason: {it.rejectionReason}</div>
+                    )}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-xs">
+                    {it.batch ? (
+                      <span className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
+                        {it.batch.batchNumber}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
                   <TableCell className="font-mono text-xs">{it.sku ?? '—'}</TableCell>
@@ -279,18 +290,24 @@ interface DraftLine {
   key: number
   selected: Selected | null
   kg: string
+  batchId: string // Phase 3 — per LINE, so one request can serve several batches
 }
 let lineKeySeq = 1
 
 /** Head-only: build a multi-material request, then submit all lines at once. */
 function NewRequestForm({ onCreated }: { onCreated: () => void }) {
-  const [lines, setLines] = useState<DraftLine[]>([{ key: 0, selected: null, kg: '' }])
+  const [lines, setLines] = useState<DraftLine[]>([{ key: 0, selected: null, kg: '', batchId: '' }])
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
+  // Phase 3 — the head's own recent batches (server scopes to their department).
+  const [batches, setBatches] = useState<Batch[]>([])
+  useEffect(() => {
+    api.get<Batch[]>('/batches?take=50').then(setBatches).catch(() => {})
+  }, [])
 
   const setLine = (key: number, patch: Partial<DraftLine>) =>
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))
-  const addLine = () => setLines((prev) => [...prev, { key: lineKeySeq++, selected: null, kg: '' }])
+  const addLine = () => setLines((prev) => [...prev, { key: lineKeySeq++, selected: null, kg: '', batchId: '' }])
   const removeLine = (key: number) =>
     setLines((prev) => (prev.length === 1 ? prev : prev.filter((l) => l.key !== key)))
 
@@ -307,10 +324,11 @@ function NewRequestForm({ onCreated }: { onCreated: () => void }) {
           sku: l.selected!.sku ?? undefined,
           catalogueItemId: l.selected!.catalogueItemId ?? undefined,
           requestedKg: Number(l.kg),
+          batchId: l.batchId || undefined,
         })),
       })
       toast({ title: 'Request raised', description: `${validLines.length} material${validLines.length === 1 ? '' : 's'} sent to Store.` })
-      setLines([{ key: lineKeySeq++, selected: null, kg: '' }])
+      setLines([{ key: lineKeySeq++, selected: null, kg: '', batchId: '' }])
       setNote('')
       onCreated()
     } catch (err) {
@@ -333,42 +351,68 @@ function NewRequestForm({ onCreated }: { onCreated: () => void }) {
         </p>
 
         <div className="space-y-2">
-          {lines.map((l, i) => (
-            <div key={l.key} className="grid gap-2 sm:grid-cols-[24px_minmax(0,1fr)_130px_36px] sm:items-center">
-              <div className="text-xs text-muted-foreground">{i + 1}</div>
-              {l.selected ? (
-                <div className="flex h-9 items-center justify-between rounded-md border bg-muted/40 px-3 text-sm">
-                  <span className="truncate">
-                    {l.selected.materialName}
-                    {l.selected.sku && <span className="ml-2 font-mono text-xs text-muted-foreground">{l.selected.sku}</span>}
-                  </span>
-                  <button type="button" onClick={() => setLine(l.key, { selected: null })} className="text-muted-foreground hover:text-foreground">
-                    <X className="h-4 w-4" />
-                  </button>
+          {lines.map((l, i) => {
+            const lineBatch = batches.find((b) => b.id === l.batchId)
+            return (
+              <div key={l.key} className="space-y-1">
+                <div className="grid gap-2 sm:grid-cols-[24px_minmax(0,1fr)_150px_110px_36px] sm:items-center">
+                  <div className="text-xs text-muted-foreground">{i + 1}</div>
+                  {l.selected ? (
+                    <div className="flex h-9 items-center justify-between rounded-md border bg-muted/40 px-3 text-sm">
+                      <span className="truncate">
+                        {l.selected.materialName}
+                        {l.selected.sku && <span className="ml-2 font-mono text-xs text-muted-foreground">{l.selected.sku}</span>}
+                      </span>
+                      <button type="button" onClick={() => setLine(l.key, { selected: null })} className="text-muted-foreground hover:text-foreground">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <MaterialPicker onSelect={(s) => setLine(l.key, { selected: s })} />
+                  )}
+                  {/* Phase 3 — batch per line: pick an existing one (top-up) or leave blank. */}
+                  <select
+                    value={l.batchId}
+                    onChange={(e) => setLine(l.key, { batchId: e.target.value })}
+                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    title="Which batch is this material for?"
+                  >
+                    <option value="">No batch</option>
+                    {batches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.batchNumber}
+                        {b.locked ? ' (confirmed)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={l.kg}
+                    onChange={(e) => setLine(l.key, { kg: e.target.value })}
+                    placeholder="kg"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 text-destructive"
+                    onClick={() => removeLine(l.key)}
+                    disabled={lines.length === 1}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
-              ) : (
-                <MaterialPicker onSelect={(s) => setLine(l.key, { selected: s })} />
-              )}
-              <Input
-                type="number"
-                min={0}
-                step="any"
-                value={l.kg}
-                onChange={(e) => setLine(l.key, { kg: e.target.value })}
-                placeholder="kg"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-9 text-destructive"
-                onClick={() => removeLine(l.key)}
-                disabled={lines.length === 1}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          ))}
+                {lineBatch?.locked && (
+                  <p className="pl-6 text-xs text-amber-700">
+                    ⚠ Batch {lineBatch.batchNumber} is already confirmed. Material issued now is still traced
+                    to it — use this only for a genuine top-up or correction.
+                  </p>
+                )}
+              </div>
+            )
+          })}
         </div>
 
         <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addLine}>

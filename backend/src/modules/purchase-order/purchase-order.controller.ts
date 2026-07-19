@@ -25,8 +25,12 @@ import { PurchaseOrderService } from './purchase-order.service';
 import { ManualEntryDto } from './dto/manual-entry.dto';
 import { CreateLineItemDto, UpdateLineItemDto } from './dto/line-item.dto';
 
+// Purchase orders are Phase 1 data. Class-level gate covers the read routes (list /
+// detail / file); write routes keep their stricter ADMIN+OPERATOR gates below. The
+// Phase 3 DISPATCH role is excluded entirely — it never sees supplier or PO data.
 @Controller('purchase-orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN, Role.OPERATOR, Role.SUPERVISOR, Role.OVERSIGHT)
 export class PurchaseOrderController {
   constructor(private readonly po: PurchaseOrderService) {}
 

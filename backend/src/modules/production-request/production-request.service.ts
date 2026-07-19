@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, RequestStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -9,13 +14,18 @@ import {
   ownDepartment,
 } from '../../common/auth/department-scope';
 import { StockService } from '../stock/stock.service';
+import { isBatchLocked } from '../batch/batch.service';
 import { CreateProductionRequestDto } from './dto/create-production-request.dto';
 import { ReviewRequestItemDto } from './dto/review-request-item.dto';
 
 const requestInclude = {
   requestedBy: { select: { id: true, name: true, department: true } },
   reviewedBy: { select: { id: true, name: true } },
-  items: { orderBy: { createdAt: 'asc' } },
+  // Batch is included per LINE so the Store inbox shows which batch each material is for.
+  items: {
+    orderBy: { createdAt: 'asc' },
+    include: { batch: { select: { id: true, batchNumber: true, status: true } } },
+  },
 } satisfies Prisma.ProductionRequestInclude;
 
 /**
@@ -84,6 +94,26 @@ export class ProductionRequestService {
       }
     }
 
+    // Phase 3 — validate referenced batches: they must exist AND belong to this head's
+    // own department (a head can never attach a line to another department's batch).
+    // Requesting against an already-confirmed batch is allowed but recorded as a
+    // post-confirmation top-up (warn, never block — the UI shows the warning).
+    const batchIds = [...new Set(dto.items.map((i) => i.batchId).filter(Boolean))] as string[];
+    const lockedTopUps: string[] = [];
+    if (batchIds.length) {
+      const batches = await this.prisma.batch.findMany({ where: { id: { in: batchIds } } });
+      if (batches.length !== batchIds.length) {
+        throw new BadRequestException('A selected batch no longer exists.');
+      }
+      for (const b of batches) {
+        if (b.department !== department) {
+          // Server-side isolation: not just hidden in the UI.
+          throw new ForbiddenException("You cannot request against another department's batch.");
+        }
+        if (isBatchLocked(b.status)) lockedTopUps.push(b.batchNumber);
+      }
+    }
+
     const req = await this.prisma.productionRequest.create({
       data: {
         department,
@@ -97,6 +127,7 @@ export class ProductionRequestService {
             catalogueItemId: it.catalogueItemId || null,
             requestedKg: it.requestedKg,
             status: RequestStatus.PENDING,
+            batchId: it.batchId || null,
           })),
         },
       },
@@ -112,8 +143,21 @@ export class ProductionRequestService {
         department,
         itemCount: req.items.length,
         totalRequestedKg: req.items.reduce((s, i) => s + i.requestedKg, 0),
+        batchIds,
       },
     });
+
+    // A top-up against a batch whose output was already confirmed is legitimate (a
+    // correction) but must be visible to Admin — audit it explicitly.
+    for (const batchNumber of lockedTopUps) {
+      await this.audit.log({
+        entityType: 'ProductionRequest',
+        entityId: req.id,
+        action: 'BATCH_POST_CONFIRM_TOPUP',
+        actorId: user.id,
+        after: { batchNumber, department, note: 'Material requested against an already-confirmed batch.' },
+      });
+    }
 
     return req;
   }

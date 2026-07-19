@@ -27,6 +27,13 @@ export class RequestLineItemDto {
   @IsNumber()
   @IsPositive()
   requestedKg!: number;
+
+  // Phase 3 — the batch this LINE is for (per line, not per request: a head may order
+  // for several batches at once). Must be an existing batch in the head's OWN
+  // department; the server re-checks ownership. Optional for backwards compatibility.
+  @IsOptional()
+  @IsString()
+  batchId?: string;
 }
 
 // A production head raises ONE request holding many material lines (a batch's worth).
