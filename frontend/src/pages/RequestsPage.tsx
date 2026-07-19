@@ -300,10 +300,22 @@ function NewRequestForm({ onCreated }: { onCreated: () => void }) {
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   // Phase 3 — the head's own recent batches (server scopes to their department).
+  // An empty list and a failed load look identical in the dropdown, so track them
+  // apart: "no batches yet" needs a link to create one, a failure needs a retry.
   const [batches, setBatches] = useState<Batch[]>([])
-  useEffect(() => {
-    api.get<Batch[]>('/batches?take=50').then(setBatches).catch(() => {})
+  const [batchesLoaded, setBatchesLoaded] = useState(false)
+  const [batchesFailed, setBatchesFailed] = useState(false)
+  const loadBatches = useCallback(() => {
+    setBatchesFailed(false)
+    api
+      .get<Batch[]>('/batches?take=50')
+      .then((b) => {
+        setBatches(b)
+        setBatchesLoaded(true)
+      })
+      .catch(() => setBatchesFailed(true))
   }, [])
+  useEffect(loadBatches, [loadBatches])
 
   const setLine = (key: number, patch: Partial<DraftLine>) =>
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))
@@ -347,8 +359,27 @@ function NewRequestForm({ onCreated }: { onCreated: () => void }) {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          Add every material this batch needs. Store reviews each line and can accept, partially fulfill, or reject it.
+          Add every material you need. Store reviews each line and can accept, partially fulfill, or reject it.
+          Tagging a line with a batch is optional — it is what links the material back to the finished goods later.
         </p>
+
+        {batchesFailed ? (
+          <p className="text-xs text-destructive">
+            Couldn&apos;t load your batches.{' '}
+            <button type="button" onClick={loadBatches} className="underline underline-offset-2">
+              Try again
+            </button>
+            {' '}— you can still submit the request without a batch.
+          </p>
+        ) : batchesLoaded && batches.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            You have no open batches, so the batch dropdown is empty. Submit without one, or{' '}
+            <Link to="/batches" className="font-medium underline underline-offset-2">
+              open a batch first
+            </Link>
+            {' '}to trace this material through to finished goods.
+          </p>
+        ) : null}
 
         <div className="space-y-2">
           {lines.map((l, i) => {
@@ -370,14 +401,25 @@ function NewRequestForm({ onCreated }: { onCreated: () => void }) {
                   ) : (
                     <MaterialPicker onSelect={(s) => setLine(l.key, { selected: s })} />
                   )}
-                  {/* Phase 3 — batch per line: pick an existing one (top-up) or leave blank. */}
+                  {/* Phase 3 — batch per line: pick an existing one (top-up) or leave blank.
+                      With no batches open the list has only the blank option, which reads as a
+                      broken control — so say why it is empty instead of just showing "No batch". */}
                   <select
                     value={l.batchId}
                     onChange={(e) => setLine(l.key, { batchId: e.target.value })}
                     className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                     title="Which batch is this material for?"
+                    disabled={batchesFailed}
                   >
-                    <option value="">No batch</option>
+                    <option value="">
+                      {batchesFailed
+                        ? "Couldn't load batches"
+                        : !batchesLoaded
+                          ? 'Loading batches…'
+                          : batches.length === 0
+                            ? 'No batches open yet — optional'
+                            : 'No batch'}
+                    </option>
                     {batches.map((b) => (
                       <option key={b.id} value={b.id}>
                         {b.batchNumber}
