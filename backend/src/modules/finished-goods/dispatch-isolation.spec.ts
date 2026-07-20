@@ -44,8 +44,14 @@ describe('Phase 3 — DISPATCH role isolation (server-side)', () => {
     ['ProductionRequestController', ProductionRequestController],
     ['BatchController', BatchController],
     ['ProductionOutputController', ProductionOutputController],
-    ['AnalyticsController', AnalyticsController],
   ];
+
+/**
+ * AnalyticsController is a DELIBERATE partial exception, so it gets its own stricter
+ * assertion below rather than the blanket rule: DISPATCH may read its OWN analytics
+ * (finished goods only, enforced in DispatchAnalyticsService by never querying raw
+ * stock, requests or Phase 1 data) and nothing else on that controller.
+ */
 
   describe.each(FORBIDDEN_FOR_DISPATCH)('%s', (_name, controller) => {
     it('has a role gate on EVERY route (no ungated endpoint)', () => {
@@ -104,6 +110,29 @@ describe('Phase 3 — DISPATCH role isolation (server-side)', () => {
   describe('batch creation', () => {
     it('only a production head may create a batch', () => {
       expect(rolesFor(BatchController, 'create')).toEqual([Role.PRODUCTION_HEAD]);
+    });
+  });
+
+  describe('AnalyticsController — dispatch may see ONLY its own analytics', () => {
+    it('grants DISPATCH exactly one route', () => {
+      const granted = methodsOf(AnalyticsController).filter((m) =>
+        (rolesFor(AnalyticsController, m) ?? []).includes(Role.DISPATCH),
+      );
+      expect(granted).toEqual(['dispatchOverview']);
+    });
+
+    it('never grants DISPATCH the stock, store, department or factory-flow analytics', () => {
+      for (const m of ['adminOverview', 'storeOverview', 'myOverview', 'flow']) {
+        const roles = rolesFor(AnalyticsController, m);
+        expect(roles).toBeDefined();
+        expect(roles).not.toContain(Role.DISPATCH);
+      }
+    });
+
+    it('still gates every analytics route', () => {
+      for (const m of methodsOf(AnalyticsController)) {
+        expect(rolesFor(AnalyticsController, m)).toBeDefined();
+      }
     });
   });
 });

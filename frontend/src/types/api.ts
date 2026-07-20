@@ -491,3 +491,58 @@ export interface StockAgeing {
   oldestAgeDays: number
   totalUnits: number
 }
+
+// ── Dispatch analytics (Phase 3) ─────────────────────────────────────────────
+export interface DispatchAnalytics {
+  windowDays: number
+  department: Department | null
+  totals: {
+    dispatchedToday: number
+    dispatchedInWindow: number
+    dispatchedAllTime: number
+    readyForDispatch: number
+    oldestReadyDays: number | null
+    avgHoursToDispatch: number | null
+  }
+  volume: {
+    dispatchedInWindow: { litres: number; kg: number }
+    awaitingDispatch: { litres: number; kg: number }
+  }
+  series: { date: string; units: number }[]
+  byDepartment: { department: Department; units: number }[]
+  batches: { fullyDispatched: number; partiallyDispatched: number; notStarted: number }
+  recent: {
+    uniqueId: string
+    productName: string
+    dispatchedAt: string | null
+    size: string
+    by: string | null
+    batchNumber: string | null
+    department: Department | null
+  }[]
+}
+
+// ── Company Brain: factory-wide flow (Admin only) ────────────────────────────
+export interface FactoryFlow {
+  range: { from: string; to: string }
+  stages: {
+    received: { kg: number; movements: number }
+    issued: { kg: number; byDepartment: { department: Department; kg: number; movements: number }[] }
+    discarded: { kg: number }
+    batches: { opened: number }
+    produced: {
+      litres: number
+      kg: number
+      packages: number
+      fgUnitsCreated: number
+      byDepartment: { department: Department; litres: number; kg: number; packages: number; batches: number }[]
+    }
+    dispatched: {
+      units: number
+      litres: number
+      kg: number
+      byDepartment: { department: Department; units: number; litres: number; kg: number }[]
+    }
+  }
+  derived: { yieldPct: number | null; inProcessKg: number; awaitingDispatchUnits: number }
+}

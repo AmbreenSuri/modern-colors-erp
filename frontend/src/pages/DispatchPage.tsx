@@ -11,6 +11,8 @@ import { RapidScanPanel, type RapidScanResult } from '@/components/scan/RapidSca
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { AnimatedNumber } from '@/components/ui/animated-number'
+import { DispatchAnalytics } from '@/components/dashboard/DispatchAnalytics'
+import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/common/EmptyState'
 import { ConfirmationDialog } from '@/components/common/ConfirmationDialog'
@@ -31,6 +33,7 @@ function extractUniqueId(text: string): string {
 }
 
 export function DispatchPage() {
+  const [tab, setTab] = useState<'scan' | 'analytics'>('scan')
   const { user } = useAuth()
   const [ready, setReady] = useState<DispatchReady | null>(null)
   const [history, setHistory] = useState<DispatchHistory | null>(null)
@@ -116,8 +119,21 @@ export function DispatchPage() {
     return <EmptyState title="Dispatch" description="This screen is for the dispatch team." />
   }
 
+  // Tabs, with SCAN as the default. The scan loop is the operator's primary job on a
+  // phone; analytics is a secondary view and must never get in front of it.
+  if (tab === 'analytics') {
+    return (
+      <div className="space-y-4">
+        <DispatchTabs tab={tab} onChange={setTab} />
+        <DispatchAnalytics />
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto max-w-xl space-y-4">
+      <DispatchTabs tab={tab} onChange={setTab} />
+
       {/* Today's tally */}
       <div className="stagger grid grid-cols-2 gap-3">
         <Card className="chip-edge tactile-lift pl-1 [--chip-edge-color:hsl(var(--healthy))]">
@@ -220,6 +236,41 @@ export function DispatchPage() {
         confirmLabel="Dispatch all"
         onConfirm={dispatchWholeBatch}
       />
+    </div>
+  )
+}
+
+
+/** Scan / Analytics switch. Kept deliberately small so it never competes with the
+ *  scan surface, and 44px on touch for gloved hands. */
+function DispatchTabs({
+  tab,
+  onChange,
+}: {
+  tab: 'scan' | 'analytics'
+  onChange: (t: 'scan' | 'analytics') => void
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Dispatch view"
+      className="inline-flex items-center gap-0.5 rounded-lg bg-chip-100 p-0.5"
+    >
+      {(['scan', 'analytics'] as const).map((t) => (
+        <button
+          key={t}
+          type="button"
+          role="radio"
+          aria-checked={tab === t}
+          onClick={() => onChange(t)}
+          className={cn(
+            'tactile rounded-md px-3.5 py-1.5 text-xs font-semibold [@media(pointer:coarse)]:min-h-11',
+            tab === t ? 'bg-card text-chip-900 shadow-elev-1' : 'text-chip-500 hover:text-chip-700',
+          )}
+        >
+          {t === 'scan' ? 'Scan' : 'Analytics'}
+        </button>
+      ))}
     </div>
   )
 }

@@ -21,6 +21,9 @@ import { DEPT_COLOR, STATUS_COLOR } from '@/components/charts/chartTheme'
 import { WindowToggle } from '@/components/charts/WindowToggle'
 import { LowStockAlerts, AgeingStockPanel, Kpi, ChartCard, Empty, DashboardSkeleton } from '@/components/dashboard/parts'
 import { HeroMetric } from '@/components/dashboard/HeroMetric'
+import { CompanyBrain } from '@/components/dashboard/CompanyBrain'
+import { DispatchAnalytics } from '@/components/dashboard/DispatchAnalytics'
+import { cn } from '@/lib/utils'
 
 const DEPARTMENTS: Department[] = ['PU', 'ENAMEL', 'POWDER']
 const STATUSES: RequestStatus[] = ['PENDING', 'IN_PROGRESS', 'APPROVED', 'PARTIAL', 'REJECTED']
@@ -32,6 +35,7 @@ const TXN_META: Record<StockTxnType, { icon: typeof PlusCircle; cls: string }> =
 }
 
 export function OversightPage() {
+  const [view, setView] = useState<'factory' | 'brain' | 'dispatch'>('factory')
   const [days, setDays] = useState(30)
   const [data, setData] = useState<AdminAnalytics | null>(null)
   const [error, setError] = useState(false)
@@ -53,8 +57,57 @@ export function OversightPage() {
     issued: data.fulfilment[d]?.issuedKg ?? 0,
   }))
 
+  // The owner's three views. "Factory" is the existing oversight dashboard and stays
+  // the default so nothing moves for someone who already knows this screen.
+  const tabs = (
+    <div
+      role="radiogroup"
+      aria-label="Oversight view"
+      className="inline-flex items-center gap-0.5 rounded-lg bg-chip-100 p-0.5"
+    >
+      {([
+        ['factory', 'Factory'],
+        ['brain', 'Company Brain'],
+        ['dispatch', 'Dispatch'],
+      ] as const).map(([k, label]) => (
+        <button
+          key={k}
+          type="button"
+          role="radio"
+          aria-checked={view === k}
+          onClick={() => setView(k)}
+          className={cn(
+            'tactile rounded-md px-3.5 py-1.5 text-xs font-semibold [@media(pointer:coarse)]:min-h-11',
+            view === k ? 'bg-card text-chip-900 shadow-elev-1' : 'text-chip-500 hover:text-chip-700',
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+
+  if (view === 'brain') {
+    return (
+      <div className="space-y-4">
+        {tabs}
+        <CompanyBrain />
+      </div>
+    )
+  }
+
+  if (view === 'dispatch') {
+    return (
+      <div className="space-y-4">
+        {tabs}
+        <DispatchAnalytics />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
+      {tabs}
       <div className="flex flex-wrap items-center justify-between gap-2">
         {/* Title lives in the Navbar (see AppLayout pageTitles) — no duplicate h1. */}
         <div className="flex-1" />
