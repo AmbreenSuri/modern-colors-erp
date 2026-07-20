@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { HealthController } from './health.controller';
+import { HealthController, StorageHealthController } from './health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { StorageModule } from './common/storage/storage.module';
 import { validateEnv } from './config/env.validation';
@@ -45,6 +45,6 @@ import { FinishedGoodsModule } from './modules/finished-goods/finished-goods.mod
     ProductionOutputModule,
     FinishedGoodsModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, StorageHealthController],
 })
 export class AppModule {}
