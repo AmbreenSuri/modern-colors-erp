@@ -136,8 +136,23 @@ export class PurchaseOrderService {
     let buffer: Buffer;
     try {
       buffer = await this.storage.get(po.fileKey);
-    } catch {
-      throw new BadRequestException('Invoice file could not be read from storage.');
+    } catch (err) {
+      // A storage outage is NOT the operator's fault and must not be a dead end.
+      // This previously threw a 400, which both discarded the specific reason the
+      // storage layer had worked out and implied "your request was wrong, do not
+      // retry" — when in fact retrying after storage recovers would succeed.
+      // Return the same fallback signal an AI failure returns, so the operator is
+      // routed to manual entry exactly as invariant I7 intends.
+      const message =
+        err instanceof Error ? err.message : 'The invoice file could not be read from storage.';
+      await this.audit.log({
+        entityType: 'PurchaseOrder',
+        entityId: po.id,
+        action: 'AI_EXTRACTION_FAILED',
+        actorId,
+        after: { reason: 'storage_unavailable', message },
+      });
+      return { fallback: true, reason: 'storage_unavailable', message };
     }
 
     try {
