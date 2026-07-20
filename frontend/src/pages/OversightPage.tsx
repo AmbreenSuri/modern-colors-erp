@@ -35,7 +35,7 @@ const TXN_META: Record<StockTxnType, { icon: typeof PlusCircle; cls: string }> =
 }
 
 export function OversightPage() {
-  const [view, setView] = useState<'factory' | 'brain' | 'dispatch'>('factory')
+  const [view, setView] = useState<'factory' | 'brain' | 'dispatch'>('brain')
   const [days, setDays] = useState(30)
   const [data, setData] = useState<AdminAnalytics | null>(null)
   const [error, setError] = useState(false)
@@ -45,20 +45,14 @@ export function OversightPage() {
     api.get<AdminAnalytics>(`/analytics/overview?days=${days}`).then(setData).catch(() => setError(true))
   }, [days])
 
-  if (error) return <EmptyState title="Could not load oversight" description="Please refresh to try again." />
-  if (!data) return <DashboardSkeleton title="Factory oversight" />
-
-  const statusData = STATUSES.map((s) => ({ label: s.replace('_', ' '), value: data.requestsByStatus[s] }))
-  const consumptionData = data.consumptionByDept.map((c) => ({ label: DEPT_LABEL[c.department], value: c.deductedKg }))
-  const topData = data.topConsumed.map((m) => ({ label: m.sku ?? m.materialName.slice(0, 10), value: m.totalKg }))
-  const fulfilmentData = DEPARTMENTS.map((d) => ({
-    label: DEPT_LABEL[d],
-    requested: data.fulfilment[d]?.requestedKg ?? 0,
-    issued: data.fulfilment[d]?.issuedKg ?? 0,
-  }))
-
-  // The owner's three views. "Factory" is the existing oversight dashboard and stays
-  // the default so nothing moves for someone who already knows this screen.
+  // The owner's three views. Company Brain leads and is the landing view: it is the
+  // one screen that answers "what came in, what got made, what went out" in a glance,
+  // which is what the factory owner opens this system for.
+  //
+  // These branches sit ABOVE the factory-data guard below on purpose. That guard blocks
+  // on /analytics/overview, which Company Brain and Dispatch do not use — leaving them
+  // underneath it would make the DEFAULT view wait on a request it never reads, behind
+  // a skeleton labelled for a different screen.
   const tabs = (
     <div
       role="radiogroup"
@@ -66,8 +60,8 @@ export function OversightPage() {
       className="inline-flex items-center gap-0.5 rounded-lg bg-chip-100 p-0.5"
     >
       {([
-        ['factory', 'Factory'],
         ['brain', 'Company Brain'],
+        ['factory', 'Factory'],
         ['dispatch', 'Dispatch'],
       ] as const).map(([k, label]) => (
         <button
@@ -104,6 +98,18 @@ export function OversightPage() {
       </div>
     )
   }
+
+  if (error) return <EmptyState title="Could not load oversight" description="Please refresh to try again." />
+  if (!data) return <DashboardSkeleton title="Factory oversight" />
+
+  const statusData = STATUSES.map((s) => ({ label: s.replace('_', ' '), value: data.requestsByStatus[s] }))
+  const consumptionData = data.consumptionByDept.map((c) => ({ label: DEPT_LABEL[c.department], value: c.deductedKg }))
+  const topData = data.topConsumed.map((m) => ({ label: m.sku ?? m.materialName.slice(0, 10), value: m.totalKg }))
+  const fulfilmentData = DEPARTMENTS.map((d) => ({
+    label: DEPT_LABEL[d],
+    requested: data.fulfilment[d]?.requestedKg ?? 0,
+    issued: data.fulfilment[d]?.issuedKg ?? 0,
+  }))
 
   return (
     <div className="space-y-4">
