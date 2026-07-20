@@ -1,9 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { CheckCircle2, Keyboard, Loader2, ScanLine, XCircle } from 'lucide-react'
+import { CheckCircle2, Loader2, ScanLine, XCircle } from 'lucide-react'
 import { ErrorBoundary } from '@/components/common/ErrorBoundary'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { ScanModeToggle } from './ScanModeToggle'
+import { useScanMode } from './useScanMode'
 
 const CameraQrScanner = lazy(() =>
   import('./CameraQrScanner').then((m) => ({ default: m.CameraQrScanner })),
@@ -59,7 +61,7 @@ export function RapidScanPanel({
 }) {
   const [mode, setMode] = useState<'ready' | 'working' | 'result'>('ready')
   const [result, setResult] = useState<RapidScanResult | null>(null)
-  const [useCamera, setUseCamera] = useState(false)
+  const { mode: scanMode, setMode: setScanMode, isCamera } = useScanMode()
   const inputRef = useRef<HTMLInputElement>(null)
   const timerRef = useRef<number | null>(null)
   // Guards against the same code firing twice (scanner double-trigger, camera re-decode).
@@ -67,10 +69,10 @@ export function RapidScanPanel({
   const busyRef = useRef(false)
 
   const focusInput = useCallback(() => {
-    if (useCamera || disabled) return
+    if (isCamera || disabled) return
     // rAF so focus lands after React has committed the current render.
     requestAnimationFrame(() => inputRef.current?.focus())
-  }, [useCamera, disabled])
+  }, [isCamera, disabled])
 
   const handle = useCallback(
     async (raw: string) => {
@@ -132,19 +134,29 @@ export function RapidScanPanel({
         isError && 'border-critical-border bg-critical-surface',
       )}
     >
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-x-2 gap-y-2 space-y-0 pb-3">
         <CardTitle className="flex items-center gap-2 text-title-3">
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent-brand/10 text-accent-brand">
             <ScanLine className="h-4 w-4" />
           </span>
           {title}
         </CardTitle>
-        <span
-          className="shrink-0 rounded-full bg-chip-100 px-2.5 py-1 text-xs font-semibold tabular text-chip-700"
-          aria-live="polite"
-        >
-          {sessionCount} scanned
-        </span>
+        <div className="flex w-full shrink-0 items-center justify-between gap-2 sm:w-auto sm:justify-end">
+          <span
+            className="rounded-full bg-chip-100 px-2.5 py-1 text-xs font-semibold tabular text-chip-700"
+            aria-live="polite"
+          >
+            {sessionCount} scanned
+          </span>
+          {/* Switchable mid-run; the choice is remembered per device. */}
+          <ScanModeToggle
+            mode={scanMode}
+            onChange={(m) => {
+              setScanMode(m)
+              if (m === 'external') focusInput()
+            }}
+          />
+        </div>
       </CardHeader>
 
       <CardContent className="space-y-3">
@@ -204,7 +216,7 @@ export function RapidScanPanel({
 
         {/* Hardware-scanner input. Visually minimal but a REAL focusable field — the
             scanner types into it and submits with its Enter keystroke. */}
-        {!useCamera && (
+        {!isCamera && (
           <form
             onSubmit={(e) => {
               e.preventDefault()
@@ -228,14 +240,14 @@ export function RapidScanPanel({
               disabled={disabled}
               onBlur={() => {
                 // Reclaim focus if anything steals it, so the scanner keeps working.
-                if (!useCamera && !disabled) setTimeout(focusInput, 60)
+                if (!isCamera && !disabled) setTimeout(focusInput, 60)
               }}
               className="h-11 text-center font-mono"
             />
           </form>
         )}
 
-        {useCamera && (
+        {isCamera && (
           <ErrorBoundary
             fallback={
               <div className="rounded-lg border border-warning-border bg-warning-surface p-5 text-center text-sm text-warning-foreground">
@@ -254,19 +266,6 @@ export function RapidScanPanel({
             </Suspense>
           </ErrorBoundary>
         )}
-
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            setUseCamera((v) => !v)
-            if (useCamera) focusInput()
-          }}
-          className="tactile flex min-h-11 w-full items-center justify-center gap-1.5 border-t pt-3 text-xs font-medium text-chip-500 hover:text-accent-brand"
-        >
-          <Keyboard className="h-3.5 w-3.5" />
-          {useCamera ? 'Use the WiFi / USB scanner instead' : 'Use the phone camera instead'}
-        </button>
 
         {/* Running log so the operator can see the last few sacks went through. */}
         {recent.length > 0 && (
