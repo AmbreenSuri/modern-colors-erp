@@ -19,6 +19,7 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { MovementTrend, CategoryBars } from '@/components/charts/Charts'
 import { WindowToggle } from '@/components/charts/WindowToggle'
 import { LowStockAlerts, AgeingStockPanel, Kpi, ChartCard, Empty, DashboardSkeleton } from '@/components/dashboard/parts'
+import { formatUnitTotals } from '@/lib/units'
 
 export function StoreDashboardPage() {
   const [days, setDays] = useState(30)
@@ -104,18 +105,18 @@ export function StoreDashboardPage() {
 
       {/* KPIs */}
       <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi label="In-hand stock" value={`${data.snapshot.grandTotalKg} kg`} sub={`${data.snapshot.unitCount} units · ${data.snapshot.materialCount} materials`} tone="primary" />
-        <Kpi label="Added today" value={`${data.totals.today.ADD} kg`} sub={`${data.totals.window.ADD} kg in ${data.windowDays}d`} tone="success" />
-        <Kpi label="Issued today" value={`${data.totals.today.DEDUCT} kg`} sub={`${data.totals.window.DEDUCT} kg in ${data.windowDays}d`} tone="info" />
-        <Kpi label="Discarded today" value={`${data.totals.today.DISCARD} kg`} sub={`${data.totals.window.DISCARD} kg in ${data.windowDays}d`} tone="danger" />
+        <Kpi label="In-hand stock" value={formatUnitTotals(data.snapshot.totalsByUnit)} sub={`${data.snapshot.unitCount} units · ${data.snapshot.materialCount} materials`} tone="primary" />
+        <Kpi label="Added today" value={formatUnitTotals(data.totals.today.ADD)} sub={`${formatUnitTotals(data.totals.window.ADD)} in ${data.windowDays}d`} tone="success" />
+        <Kpi label="Issued today" value={formatUnitTotals(data.totals.today.DEDUCT)} sub={`${formatUnitTotals(data.totals.window.DEDUCT)} in ${data.windowDays}d`} tone="info" />
+        <Kpi label="Discarded today" value={formatUnitTotals(data.totals.today.DISCARD)} sub={`${formatUnitTotals(data.totals.window.DISCARD)} in ${data.windowDays}d`} tone="danger" />
       </div>
 
       {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard title="Stock movement trend" icon={TrendingUp} span2>
+        <ChartCard title="Stock movement trend (kg)" icon={TrendingUp} span2>
           <MovementTrend data={data.series} />
         </ChartCard>
-        <ChartCard title="Most-requested materials" icon={PackageCheck}>
+        <ChartCard title="Most-requested materials (kg)" icon={PackageCheck}>
           {topData.length ? <CategoryBars data={topData} /> : <Empty>No requests in this window yet.</Empty>}
         </ChartCard>
         <Card>
@@ -133,7 +134,7 @@ export function StoreDashboardPage() {
                   <li key={m.id} className="flex items-center gap-2 py-1.5">
                     <MinusCircle className="h-4 w-4 shrink-0 text-info" />
                     <span className="min-w-0 flex-1 truncate">
-                      <span className="font-medium">{m.quantityKg} kg</span>{' · '}
+                      <span className="font-medium">{m.quantityKg} {m.material?.stockUnit ?? 'kg'}</span>{' · '}
                       <span className="font-mono text-xs">{m.material?.uniqueId ?? '—'}</span>
                       {m.department ? ` · ${m.department}` : ''}
                     </span>

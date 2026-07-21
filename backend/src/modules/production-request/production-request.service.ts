@@ -17,6 +17,7 @@ import { StockService } from '../stock/stock.service';
 import { isBatchLocked } from '../batch/batch.service';
 import { CreateProductionRequestDto } from './dto/create-production-request.dto';
 import { ReviewRequestItemDto } from './dto/review-request-item.dto';
+import { unitTotals } from '../../common/unit-total';
 
 const requestInclude = {
   requestedBy: { select: { id: true, name: true, department: true } },
@@ -200,10 +201,12 @@ export class ProductionRequestService {
     const reqWhere = departmentFilter(user);
     const itemWhere: Prisma.ProductionRequestItemWhereInput = { request: reqWhere };
 
-    const [reqGrouped, itemGrouped, itemSum] = await Promise.all([
+    const [reqGrouped, itemGrouped, itemByUnit] = await Promise.all([
       this.prisma.productionRequest.groupBy({ by: ['status'], where: reqWhere, _count: { _all: true } }),
       this.prisma.productionRequestItem.groupBy({ by: ['status'], where: itemWhere, _count: { _all: true } }),
-      this.prisma.productionRequestItem.aggregate({
+      // Grouped by the line's own `unit`, so requested/issued totals never blend kg + L.
+      this.prisma.productionRequestItem.groupBy({
+        by: ['unit'],
         where: itemWhere,
         _sum: { requestedKg: true, issuedKg: true },
       }),
@@ -222,8 +225,8 @@ export class ProductionRequestService {
       items: {
         total: Object.values(itemByStatus).reduce((a, b) => a + b, 0),
         byStatus: itemByStatus,
-        totalRequestedKg: itemSum._sum.requestedKg ?? 0,
-        totalIssuedKg: itemSum._sum.issuedKg ?? 0,
+        requestedTotals: unitTotals(itemByUnit.map((r) => ({ unit: r.unit, qty: r._sum.requestedKg ?? 0 }))),
+        issuedTotals: unitTotals(itemByUnit.map((r) => ({ unit: r.unit, qty: r._sum.issuedKg ?? 0 }))),
       },
     };
   }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Layers, Plus, ArrowRight, PackageCheck, FlaskConical, Truck } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import { formatUnitTotals } from '@/lib/units'
 import { useAuth } from '@/lib/auth'
 import type { Batch, BatchStatus, BatchTrace } from '@/types/api'
 import { Button } from '@/components/ui/button'
@@ -97,7 +98,7 @@ export function BatchesPage() {
                     {b.totals.lineCount === 1 ? '' : 's'}
                   </span>
                   <span>
-                    <b className="text-foreground">{b.totals.issuedKg} kg</b> issued
+                    <b className="text-foreground">{formatUnitTotals(b.totals.issued)}</b> issued
                   </span>
                   {b._count?.finishedGoods ? (
                     <span className="text-healthy">
@@ -191,7 +192,7 @@ function TraceModal({ batchId, onClose }: { batchId: string; onClose: () => void
             <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
               <FlaskConical className="h-4 w-4 text-info" /> Raw materials in
               <span className="font-normal text-muted-foreground">
-                · {trace.in.totalIssuedKg} kg across {trace.in.requestCount} request
+                · {formatUnitTotals(trace.in.totalIssuedByUnit)} across {trace.in.requestCount} request
                 {trace.in.requestCount === 1 ? '' : 's'}
               </span>
             </h3>
@@ -205,7 +206,7 @@ function TraceModal({ batchId, onClose }: { batchId: string; onClose: () => void
                       <span className="font-medium">{m.materialName}</span>
                       {m.sku && <span className="font-mono text-xs text-muted-foreground">{m.sku}</span>}
                       <span className="ml-auto text-xs text-muted-foreground">
-                        {m.issuedKg} / {m.approvedKg ?? m.requestedKg} kg issued
+                        {m.issuedKg} / {m.approvedKg ?? m.requestedKg} {m.unit} issued
                       </span>
                     </div>
                     {m.issues.length > 0 && (
@@ -213,7 +214,7 @@ function TraceModal({ batchId, onClose }: { batchId: string; onClose: () => void
                         {m.issues.map((i) => (
                           <li key={i.transactionId}>
                             <span className="font-mono text-foreground">{i.unit?.uniqueId ?? '—'}</span> ·{' '}
-                            {i.quantityKg} kg
+                            {i.quantityKg} {m.unit}
                             {i.unit?.supplier ? ` · ${i.unit.supplier}` : ''}
                             {i.unit?.poNumber ? ` · PO ${i.unit.poNumber}` : ''}
                             {i.by ? ` · by ${i.by.name}` : ''}

@@ -37,11 +37,11 @@ describe('StockService.levels — totals are split by unit, never mixed', () => 
 
     const kg = out.totalsByUnit.find((t) => t.unit === 'kg');
     const litres = out.totalsByUnit.find((t) => t.unit === 'L');
-    expect(kg).toMatchObject({ totalBalance: 34, unitCount: 2 });
-    expect(litres).toMatchObject({ totalBalance: 200, unitCount: 1 });
+    expect(kg).toMatchObject({ total: 34 });
+    expect(litres).toMatchObject({ total: 200 });
 
     // The classic bug this prevents: 34 + 200 = 234 of "something".
-    expect(out.totalsByUnit.some((t) => t.totalBalance === 234)).toBe(false);
+    expect(out.totalsByUnit.some((t) => t.total === 234)).toBe(false);
     // grandTotalKg is kilograms ONLY, so it can never silently include litres.
     expect(out.grandTotalKg).toBe(34);
 

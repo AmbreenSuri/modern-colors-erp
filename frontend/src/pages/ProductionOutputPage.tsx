@@ -9,6 +9,7 @@ import {
   PackageCheck,
 } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import { formatUnitTotals } from '@/lib/units'
 import { useAuth } from '@/lib/auth'
 import type { Batch, ProductionOutput } from '@/types/api'
 import { Button } from '@/components/ui/button'
@@ -272,7 +273,7 @@ function OutputForm({ batches, onSaved }: { batches: Batch[]; onSaved: () => voi
               <option value="">Select the batch…</option>
               {batches.map((b) => (
                 <option key={b.id} value={b.id}>
-                  {b.batchNumber} — {b.status.replace('_', ' ').toLowerCase()} ({b.totals.issuedKg} kg used)
+                  {b.batchNumber} — {b.status.replace('_', ' ').toLowerCase()} ({formatUnitTotals(b.totals.issued)} used)
                 </option>
               ))}
             </select>

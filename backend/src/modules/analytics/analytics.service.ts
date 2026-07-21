@@ -10,6 +10,7 @@ import {
   StockAlertLevel,
 } from './analytics.constants';
 import { ageDays, ageingLevel, fifoSort, AGEING } from '../stock/fifo.util';
+import { unitTotals, kgOnly, type UnitTotal } from '../../common/unit-total';
 
 const emptyStatus = (): Record<RequestStatus, number> => ({
   PENDING: 0,
@@ -19,7 +20,18 @@ const emptyStatus = (): Record<RequestStatus, number> => ({
   REJECTED: 0,
 });
 
-const emptyTxn = (): Record<StockTxnType, number> => ({ ADD: 0, DEDUCT: 0, DISCARD: 0 });
+/** Bucket transactions into per-type, per-unit totals (never blends kilograms + litres). */
+function byTypeUnit(
+  rows: { type: StockTxnType; quantityKg: number; material: { stockUnit: string } | null }[],
+): Record<StockTxnType, UnitTotal[]> {
+  const buckets: Record<StockTxnType, { unit: string; qty: number }[]> = { ADD: [], DEDUCT: [], DISCARD: [] };
+  for (const r of rows) buckets[r.type].push({ unit: r.material?.stockUnit ?? 'kg', qty: r.quantityKg });
+  return {
+    ADD: unitTotals(buckets.ADD),
+    DEDUCT: unitTotals(buckets.DEDUCT),
+    DISCARD: unitTotals(buckets.DISCARD),
+  };
+}
 
 function startOfToday(): Date {
   const d = new Date();
@@ -63,12 +75,15 @@ export class AnalyticsService {
   private async lowStock() {
     const units = await this.prisma.material.findMany({
       where: { balanceKg: { not: null } },
-      select: { materialName: true, sku: true, balanceKg: true },
+      select: { materialName: true, sku: true, balanceKg: true, stockUnit: true },
     });
-    const groups = new Map<string, { materialName: string; sku: string | null; totalKg: number; unitCount: number }>();
+    // Each alert is a SINGLE material, so its total is one unit — never a cross-unit
+    // blend. `stockUnit` labels it. (The low/critical tiers are numeric thresholds
+    // applied per material regardless of unit — see analytics.constants.)
+    const groups = new Map<string, { materialName: string; sku: string | null; stockUnit: string; totalKg: number; unitCount: number }>();
     for (const u of units) {
       const key = u.sku?.trim().toLowerCase() || u.materialName.trim().toLowerCase();
-      const g = groups.get(key) ?? { materialName: u.materialName, sku: u.sku, totalKg: 0, unitCount: 0 };
+      const g = groups.get(key) ?? { materialName: u.materialName, sku: u.sku, stockUnit: u.stockUnit || 'kg', totalKg: 0, unitCount: 0 };
       g.totalKg = Number((g.totalKg + (u.balanceKg ?? 0)).toFixed(6));
       g.unitCount += 1;
       groups.set(key, g);
@@ -97,7 +112,7 @@ export class AnalyticsService {
     const now = new Date();
     const units = await this.prisma.material.findMany({
       where: { balanceKg: { gt: 0 } },
-      select: { uniqueId: true, materialName: true, sku: true, balanceKg: true, arrivedAt: true },
+      select: { uniqueId: true, materialName: true, sku: true, balanceKg: true, stockUnit: true, arrivedAt: true },
     });
     const ordered = fifoSort(units).map((u) => {
       const days = ageDays(u.arrivedAt, now);
@@ -106,6 +121,7 @@ export class AnalyticsService {
         materialName: u.materialName,
         sku: u.sku,
         balanceKg: u.balanceKg ?? 0,
+        stockUnit: u.stockUnit,
         arrivedAt: u.arrivedAt,
         ageDays: days,
         level: ageingLevel(days),
@@ -144,49 +160,35 @@ export class AnalyticsService {
     return buckets.map((k) => index.get(k)!);
   }
 
-  /** Movement totals for a set of windows (today / window / all-time). */
+  /**
+   * Movement totals per type (ADD/DEDUCT/DISCARD) for today / window / all-time, each
+   * split BY UNIT so kilograms and litres are never blended. The unit lives on the
+   * material, not the transaction, so we read the rows once (with their material's unit)
+   * and bucket in JS rather than a groupBy that can't reach the relation.
+   */
   private async movementTotals(days: number, department?: Department) {
-    const deptWhere = department ? { department } : {};
-    const [today, windowed, all] = await Promise.all([
-      this.prisma.stockTransaction.groupBy({
-        by: ['type'],
-        where: { createdAt: { gte: startOfToday() }, ...deptWhere },
-        _sum: { quantityKg: true },
-      }),
-      this.prisma.stockTransaction.groupBy({
-        by: ['type'],
-        where: { createdAt: { gte: daysAgo(days) }, ...deptWhere },
-        _sum: { quantityKg: true },
-      }),
-      this.prisma.stockTransaction.groupBy({
-        by: ['type'],
-        where: { ...deptWhere },
-        _sum: { quantityKg: true },
-      }),
-    ]);
-    const fill = (rows: { type: StockTxnType; _sum: { quantityKg: number | null } }[]) => {
-      const t = emptyTxn();
-      for (const r of rows) t[r.type] = Number((r._sum.quantityKg ?? 0).toFixed(6));
-      return t;
-    };
-    return { today: fill(today), window: fill(windowed), allTime: fill(all), windowDays: days };
+    const rows = await this.prisma.stockTransaction.findMany({
+      where: { ...(department ? { department } : {}) },
+      select: { type: true, quantityKg: true, createdAt: true, material: { select: { stockUnit: true } } },
+    });
+    const todayStart = startOfToday();
+    const windowStart = daysAgo(days);
+    const pick = (from?: Date) => byTypeUnit(from ? rows.filter((r) => r.createdAt >= from) : rows);
+    return { today: pick(todayStart), window: pick(windowStart), allTime: pick(), windowDays: days };
   }
 
-  /** On-hand stock snapshot (factory-wide). */
+  /** On-hand stock snapshot (factory-wide), totals split by unit. */
   private async stockSnapshot() {
-    const agg = await this.prisma.material.aggregate({
+    const mats = await this.prisma.material.findMany({
       where: { balanceKg: { not: null } },
-      _sum: { balanceKg: true },
-      _count: { _all: true },
+      select: { materialName: true, sku: true, balanceKg: true, stockUnit: true },
     });
-    const distinct = await this.prisma.material.findMany({
-      where: { balanceKg: { not: null } },
-      select: { materialName: true, sku: true },
-    });
-    const keys = new Set(distinct.map((d) => d.sku?.trim().toLowerCase() || d.materialName.trim().toLowerCase()));
+    const totalsByUnit = unitTotals(mats.map((m) => ({ unit: m.stockUnit, qty: m.balanceKg })));
+    const keys = new Set(mats.map((d) => d.sku?.trim().toLowerCase() || d.materialName.trim().toLowerCase()));
     return {
-      grandTotalKg: Number((agg._sum.balanceKg ?? 0).toFixed(6)),
-      unitCount: agg._count._all,
+      totalsByUnit,
+      grandTotalKg: kgOnly(totalsByUnit), // kilogram-only; never a blended figure
+      unitCount: mats.length,
       materialCount: keys.size,
     };
   }
@@ -214,11 +216,11 @@ export class AnalyticsService {
       this.movementTotals(w),
       this.movementSeries(w),
       this.prisma.productionRequest.groupBy({ by: ['status'], _count: { _all: true } }),
-      // Consumption (DEDUCT) by department — window.
-      this.prisma.stockTransaction.groupBy({
-        by: ['department'],
+      // Consumption (DEDUCT) by department — window. Read with each row's material unit
+      // so the per-department totals can be split by unit rather than blended.
+      this.prisma.stockTransaction.findMany({
         where: { type: StockTxnType.DEDUCT, department: { not: null }, createdAt: { gte: daysAgo(w) } },
-        _sum: { quantityKg: true },
+        select: { department: true, quantityKg: true, material: { select: { stockUnit: true } } },
       }),
       // Top materials by consumption (DEDUCT) — window.
       this.topConsumedMaterials(w),
@@ -226,7 +228,7 @@ export class AnalyticsService {
       this.prisma.stockTransaction.findMany({
         include: {
           actor: { select: { id: true, name: true } },
-          material: { select: { uniqueId: true, materialName: true, sku: true } },
+          material: { select: { uniqueId: true, materialName: true, sku: true, stockUnit: true } },
         },
         orderBy: { createdAt: 'desc' },
         take: 8,
@@ -250,8 +252,10 @@ export class AnalyticsService {
 
     const consumption = DEPARTMENTS.map((d) => ({
       department: d,
-      deductedKg: Number(
-        (consumptionByDept.find((c) => c.department === d)?._sum.quantityKg ?? 0).toFixed(6),
+      totals: unitTotals(
+        consumptionByDept
+          .filter((c) => c.department === d)
+          .map((c) => ({ unit: c.material?.stockUnit ?? 'kg', qty: c.quantityKg })),
       ),
     }));
 
@@ -287,7 +291,7 @@ export class AnalyticsService {
         where: { type: StockTxnType.DEDUCT },
         include: {
           actor: { select: { id: true, name: true } },
-          material: { select: { uniqueId: true, materialName: true, sku: true } },
+          material: { select: { uniqueId: true, materialName: true, sku: true, stockUnit: true } },
         },
         orderBy: { createdAt: 'desc' },
         take: 8,
@@ -323,7 +327,8 @@ export class AnalyticsService {
         where: { department },
         _count: { _all: true },
       }),
-      this.prisma.productionRequestItem.aggregate({
+      this.prisma.productionRequestItem.groupBy({
+        by: ['unit'],
         where: { request: { department } },
         _sum: { requestedKg: true, approvedKg: true, issuedKg: true },
       }),
@@ -337,7 +342,7 @@ export class AnalyticsService {
           createdAt: true,
           reviewedAt: true,
           note: true,
-          items: { select: { status: true, requestedKg: true, approvedKg: true, issuedKg: true } },
+          items: { select: { status: true, requestedKg: true, unit: true, approvedKg: true, issuedKg: true } },
         },
         orderBy: { createdAt: 'desc' },
         take: 8,
@@ -352,9 +357,9 @@ export class AnalyticsService {
       windowDays: w,
       requestsByStatus,
       fulfilment: {
-        requestedKg: Number((itemAgg._sum.requestedKg ?? 0).toFixed(6)),
-        approvedKg: Number((itemAgg._sum.approvedKg ?? 0).toFixed(6)),
-        issuedKg: Number((itemAgg._sum.issuedKg ?? 0).toFixed(6)),
+        requested: unitTotals(itemAgg.map((r) => ({ unit: r.unit, qty: r._sum.requestedKg ?? 0 }))),
+        approved: unitTotals(itemAgg.map((r) => ({ unit: r.unit, qty: r._sum.approvedKg ?? 0 }))),
+        issued: unitTotals(itemAgg.map((r) => ({ unit: r.unit, qty: r._sum.issuedKg ?? 0 }))),
       },
       consumptionSeries: series,
       totals,
@@ -372,50 +377,56 @@ export class AnalyticsService {
         createdAt: { gte: daysAgo(days) },
         ...(department ? { department } : {}),
       },
-      select: { quantityKg: true, material: { select: { materialName: true, sku: true } } },
+      select: { quantityKg: true, material: { select: { materialName: true, sku: true, stockUnit: true } } },
     });
-    return this.rollupByMaterial(rows.map((r) => ({ ...r.material, quantityKg: r.quantityKg })), n);
+    return this.rollupByMaterial(
+      rows.map((r) => ({ materialName: r.material.materialName, sku: r.material.sku, unit: r.material.stockUnit, quantityKg: r.quantityKg })),
+      n,
+    );
   }
 
   /** Top N materials by REQUESTED quantity over the window. */
   private async topRequestedMaterials(days: number, n = 6) {
     const rows = await this.prisma.productionRequestItem.findMany({
       where: { createdAt: { gte: daysAgo(days) } },
-      select: { materialName: true, sku: true, requestedKg: true },
+      select: { materialName: true, sku: true, requestedKg: true, unit: true },
     });
     return this.rollupByMaterial(
-      rows.map((r) => ({ materialName: r.materialName, sku: r.sku, quantityKg: r.requestedKg })),
+      rows.map((r) => ({ materialName: r.materialName, sku: r.sku, unit: r.unit, quantityKg: r.requestedKg })),
       n,
     );
   }
 
+  // One material = one unit, so `totalKg` here is never a cross-unit blend; `unit` labels it.
   private rollupByMaterial(
-    rows: { materialName: string; sku: string | null; quantityKg: number }[],
+    rows: { materialName: string; sku: string | null; unit: string; quantityKg: number }[],
     n: number,
   ) {
-    const groups = new Map<string, { materialName: string; sku: string | null; totalKg: number }>();
+    const groups = new Map<string, { materialName: string; sku: string | null; unit: string; totalKg: number }>();
     for (const r of rows) {
       const key = r.sku?.trim().toLowerCase() || r.materialName.trim().toLowerCase();
-      const g = groups.get(key) ?? { materialName: r.materialName, sku: r.sku, totalKg: 0 };
+      const g = groups.get(key) ?? { materialName: r.materialName, sku: r.sku, unit: r.unit || 'kg', totalKg: 0 };
       g.totalKg = Number((g.totalKg + r.quantityKg).toFixed(6));
       groups.set(key, g);
     }
     return [...groups.values()].sort((a, b) => b.totalKg - a.totalKg).slice(0, n);
   }
 
-  /** Per-department requested / approved / issued (all-time). */
+  /** Per-department requested / approved / issued (all-time), each split by unit. */
   private async fulfilmentByDept() {
-    const out: Record<string, { requestedKg: number; approvedKg: number; issuedKg: number }> = {};
+    const out: Record<string, { requested: UnitTotal[]; approved: UnitTotal[]; issued: UnitTotal[] }> = {};
     await Promise.all(
       DEPARTMENTS.map(async (d) => {
-        const agg = await this.prisma.productionRequestItem.aggregate({
+        // Group by the line's own `unit` scalar — kg and L never merge into one figure.
+        const rows = await this.prisma.productionRequestItem.groupBy({
+          by: ['unit'],
           where: { request: { department: d } },
           _sum: { requestedKg: true, approvedKg: true, issuedKg: true },
         });
         out[d] = {
-          requestedKg: Number((agg._sum.requestedKg ?? 0).toFixed(6)),
-          approvedKg: Number((agg._sum.approvedKg ?? 0).toFixed(6)),
-          issuedKg: Number((agg._sum.issuedKg ?? 0).toFixed(6)),
+          requested: unitTotals(rows.map((r) => ({ unit: r.unit, qty: r._sum.requestedKg ?? 0 }))),
+          approved: unitTotals(rows.map((r) => ({ unit: r.unit, qty: r._sum.approvedKg ?? 0 }))),
+          issued: unitTotals(rows.map((r) => ({ unit: r.unit, qty: r._sum.issuedKg ?? 0 }))),
         };
       }),
     );

@@ -8,6 +8,7 @@ import type {
   StockLevels,
   StockTransaction,
   StockTxnType,
+  UnitTotal,
 } from '@/types/api'
 import { Input } from '@/components/ui/input'
 import { AnimatedNumber } from '@/components/ui/animated-number'
@@ -15,6 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmptyState } from '@/components/common/EmptyState'
+import { formatUnitTotals } from '@/lib/units'
 
 const TYPE_CLS: Record<StockTxnType, string> = {
   ADD: 'text-healthy',
@@ -98,11 +100,7 @@ function LevelsTab() {
         {data && (
           <div className="shrink-0 text-sm text-muted-foreground">
             {/* Totals are shown per unit — kilograms and litres are never summed together. */}
-            <span className="font-medium text-foreground">
-              {data.totalsByUnit.length > 0
-                ? data.totalsByUnit.map((t) => `${t.totalBalance} ${t.unit}`).join(' · ')
-                : '0 kg'}
-            </span>{' '}
+            <span className="font-medium text-foreground">{formatUnitTotals(data.totalsByUnit)}</span>{' '}
             across {data.unitCount} unit{data.unitCount === 1 ? '' : 's'}
           </div>
         )}
@@ -303,7 +301,7 @@ function BucketCard({
 }: {
   tone: 'fresh' | 'amber' | 'red'
   label: string
-  b: { unitCount: number; totalKg: number }
+  b: { unitCount: number; totals: UnitTotal[] }
   active: boolean
   onClick: () => void
 }) {
@@ -321,8 +319,17 @@ function BucketCard({
       className={`chip-edge tactile-lift rounded-lg border py-3 pl-4 pr-3 text-left ${styles} ${active ? 'ring-2 ring-offset-1' : 'opacity-90 hover:opacity-100'}`}
     >
       <div className="text-label uppercase">{label}</div>
+      {/* One unit → animate the figure with its own label. Mixed units → show the
+          breakdown ("1,200 kg · 340 L"); the two are never added together. */}
       <div className="mt-1.5 text-metric">
-        <AnimatedNumber value={b.totalKg} /> <span className="text-sm font-medium opacity-70">kg</span>
+        {b.totals.length > 1 ? (
+          <span className="text-lg font-semibold">{formatUnitTotals(b.totals)}</span>
+        ) : (
+          <>
+            <AnimatedNumber value={b.totals[0]?.total ?? 0} />{' '}
+            <span className="text-sm font-medium opacity-70">{b.totals[0]?.unit ?? 'kg'}</span>
+          </>
+        )}
       </div>
       <div className="text-xs opacity-80">{b.unitCount} unit{b.unitCount === 1 ? '' : 's'}</div>
     </button>

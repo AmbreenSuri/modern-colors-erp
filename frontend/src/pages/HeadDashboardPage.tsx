@@ -12,6 +12,7 @@ import { MovementTrend, Donut } from '@/components/charts/Charts'
 import { STATUS_COLOR } from '@/components/charts/chartTheme'
 import { WindowToggle } from '@/components/charts/WindowToggle'
 import { Kpi, ChartCard, Empty, DashboardSkeleton } from '@/components/dashboard/parts'
+import { formatUnitTotals, kgOnly, sumByUnit } from '@/lib/units'
 
 const STATUSES: RequestStatus[] = ['PENDING', 'IN_PROGRESS', 'APPROVED', 'PARTIAL', 'REJECTED']
 const DEPT_LABEL: Record<string, string> = { PU: 'PU', ENAMEL: 'Enamel', POWDER: 'Powder' }
@@ -33,8 +34,11 @@ export function HeadDashboardPage() {
   const statusData = STATUSES.map((s) => ({ label: s.replace('_', ' '), value: data.requestsByStatus[s] }))
   const totalReqs = STATUSES.reduce((s, k) => s + data.requestsByStatus[k], 0)
   const f = data.fulfilment
-  const issuedPct = f.requestedKg > 0 ? Math.min(100, Math.round((f.issuedKg / f.requestedKg) * 100)) : 0
-  const approvedPct = f.requestedKg > 0 ? Math.min(100, Math.round((f.approvedKg / f.requestedKg) * 100)) : 0
+  // Percentages are a RATIO, so they only mean something within one unit — computed on
+  // the kilogram slice and labelled as such. The KPI figures above show every unit.
+  const reqKg = kgOnly(f.requested)
+  const issuedPct = reqKg > 0 ? Math.min(100, Math.round((kgOnly(f.issued) / reqKg) * 100)) : 0
+  const approvedPct = reqKg > 0 ? Math.min(100, Math.round((kgOnly(f.approved) / reqKg) * 100)) : 0
 
   return (
     <div className="space-y-4">
@@ -61,9 +65,9 @@ export function HeadDashboardPage() {
       {/* KPIs */}
       <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi label="Total requests" value={String(totalReqs)} sub={`${data.requestsByStatus.PENDING} pending · ${data.requestsByStatus.IN_PROGRESS} in progress`} tone="primary" />
-        <Kpi label="Requested" value={`${f.requestedKg} kg`} sub="across all my lines" tone="info" />
-        <Kpi label="Approved" value={`${f.approvedKg} kg`} sub={`${approvedPct}% of requested`} tone="success" />
-        <Kpi label="Issued to me" value={`${f.issuedKg} kg`} sub={`${issuedPct}% of requested`} tone="success" />
+        <Kpi label="Requested" value={formatUnitTotals(f.requested)} sub="across all my lines" tone="info" />
+        <Kpi label="Approved" value={formatUnitTotals(f.approved)} sub={`${approvedPct}% of kg requested`} tone="success" />
+        <Kpi label="Issued to me" value={formatUnitTotals(f.issued)} sub={`${issuedPct}% of kg requested`} tone="success" />
       </div>
 
       {/* Fulfilment progress */}
@@ -74,8 +78,8 @@ export function HeadDashboardPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <ProgressRow label="Approved vs requested" pct={approvedPct} value={`${f.approvedKg} / ${f.requestedKg} kg`} tone="bg-primary" />
-          <ProgressRow label="Issued vs requested" pct={issuedPct} value={`${f.issuedKg} / ${f.requestedKg} kg`} tone="bg-healthy" />
+          <ProgressRow label="Approved vs requested (kg)" pct={approvedPct} value={`${kgOnly(f.approved)} / ${reqKg} kg`} tone="bg-primary" />
+          <ProgressRow label="Issued vs requested (kg)" pct={issuedPct} value={`${kgOnly(f.issued)} / ${reqKg} kg`} tone="bg-healthy" />
         </CardContent>
       </Card>
 
@@ -109,14 +113,15 @@ export function HeadDashboardPage() {
           ) : (
             <ul className="divide-y">
               {data.recentRequests.map((r) => {
-                const reqKg = r.items.reduce((s, i) => s + i.requestedKg, 0)
-                const issKg = r.items.reduce((s, i) => s + i.issuedKg, 0)
+                // Lines may be in different units — group, never blend into one number.
+                const req = sumByUnit(r.items.map((i) => ({ unit: i.unit, qty: i.requestedKg })))
+                const iss = sumByUnit(r.items.map((i) => ({ unit: i.unit, qty: i.issuedKg }))).filter((t) => t.total > 0)
                 return (
                   <li key={r.id} className="flex items-center gap-3 py-2 text-sm">
                     <StatusBadge status={r.status} />
                     <span className="min-w-0 flex-1 truncate">
-                      {r.items.length} material{r.items.length === 1 ? '' : 's'} · {reqKg} kg requested
-                      {issKg > 0 ? ` · ${issKg} kg issued` : ''}
+                      {r.items.length} material{r.items.length === 1 ? '' : 's'} · {formatUnitTotals(req)} requested
+                      {iss.length > 0 ? ` · ${formatUnitTotals(iss)} issued` : ''}
                       {r.note ? <span className="text-muted-foreground"> · {r.note}</span> : ''}
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground">{r.createdAt.slice(0, 10)}</span>

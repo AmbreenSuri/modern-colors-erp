@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Sankey, Tooltip, ResponsiveContainer, Layer, Rectangle } from 'recharts'
 import { ArrowRight, Boxes, FlaskConical, PackageCheck, Truck, TrendingDown } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { Department, FactoryFlow } from '@/types/api'
+import type { Department, FactoryFlow, UnitTotal } from '@/types/api'
+import { formatUnitTotals } from '@/lib/units'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { AnimatedNumber } from '@/components/ui/animated-number'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -70,35 +71,53 @@ function buildGraph(flow: FactoryFlow) {
   }
 
   const kgFmt = (n: number) => `${n.toLocaleString('en-IN')} kg`
+  /**
+   * Ribbon WIDTH needs one number per flow. Raw material may be part kg and part litres,
+   * which cannot be added — so the magnitude below is used purely to size the ribbon and
+   * is NEVER displayed. Every label the reader sees is the per-unit breakdown.
+   */
+  const magnitude = (t: UnitTotal[]) => t.reduce((sum, x) => sum + x.total, 0)
 
-  // ---- left half: raw material, measured in kg -----------------------------
-  const received = add('received', 'Raw received', kgFmt(s.received.kg), STAGE_COLOR.received)
+  // ---- left half: raw material, measured in kg and/or litres ---------------
+  const received = add('received', 'Raw received', formatUnitTotals(s.received.totals), STAGE_COLOR.received)
 
-  const depts = s.issued.byDepartment.filter((d) => d.kg > 0)
+  const depts = s.issued.byDepartment.filter((d) => magnitude(d.totals) > 0)
   // Scale so the thinnest visible ribbon is still readable.
-  const rawMax = Math.max(1, s.received.kg)
+  const rawMax = Math.max(1, magnitude(s.received.totals))
 
   for (const d of depts) {
-    const n = add(d.department, d.department, kgFmt(d.kg), STAGE_COLOR[d.department])
-    links.push({ source: received, target: n, value: Math.max(0.5, (d.kg / rawMax) * 100), real: kgFmt(d.kg), color: STAGE_COLOR[d.department] })
+    const lbl = formatUnitTotals(d.totals)
+    const n = add(d.department, d.department, lbl, STAGE_COLOR[d.department])
+    links.push({ source: received, target: n, value: Math.max(0.5, (magnitude(d.totals) / rawMax) * 100), real: lbl, color: STAGE_COLOR[d.department] })
   }
 
-  if (s.discarded.kg > 0) {
-    const n = add('discarded', 'Discarded', kgFmt(s.discarded.kg), STAGE_COLOR.discarded)
-    links.push({ source: received, target: n, value: Math.max(0.5, (s.discarded.kg / rawMax) * 100), real: kgFmt(s.discarded.kg), color: STAGE_COLOR.discarded })
+  if (magnitude(s.discarded.totals) > 0) {
+    const lbl = formatUnitTotals(s.discarded.totals)
+    const n = add('discarded', 'Discarded', lbl, STAGE_COLOR.discarded)
+    links.push({ source: received, target: n, value: Math.max(0.5, (magnitude(s.discarded.totals) / rawMax) * 100), real: lbl, color: STAGE_COLOR.discarded })
   }
 
   // Received but NOT yet issued or discarded — it is still sitting in the store.
   // Without this the left side does not balance and the diagram silently implies
   // everything that came in went out, which is the opposite of the truth.
-  const stillInStock = Number((s.received.kg - s.issued.kg - s.discarded.kg).toFixed(3))
-  if (stillInStock > 0) {
-    const n = add('instock', 'Still in store', kgFmt(stillInStock), STAGE_COLOR.inprocess)
+  // Balanced PER UNIT: litres in must never be netted off against kilograms out.
+  const stillByUnit = s.received.totals
+    .map((r) => {
+      const out =
+        (s.issued.totals.find((t) => t.unit === r.unit)?.total ?? 0) +
+        (s.discarded.totals.find((t) => t.unit === r.unit)?.total ?? 0)
+      return { unit: r.unit, total: Number((r.total - out).toFixed(3)) }
+    })
+    .filter((t) => t.total > 0)
+
+  if (stillByUnit.length > 0) {
+    const lbl = formatUnitTotals(stillByUnit)
+    const n = add('instock', 'Still in store', lbl, STAGE_COLOR.inprocess)
     links.push({
       source: received,
       target: n,
-      value: Math.max(0.5, (stillInStock / rawMax) * 100),
-      real: `${kgFmt(stillInStock)} not yet issued`,
+      value: Math.max(0.5, (magnitude(stillByUnit) / rawMax) * 100),
+      real: `${lbl} not yet issued`,
       color: STAGE_COLOR.inprocess,
     })
   }
@@ -289,8 +308,8 @@ export function CompanyBrain() {
 
       {/* ── Stage totals ─────────────────────────────────────────────── */}
       <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <StageStat label="Raw received" value={s?.received.kg} unit="kg" icon={Boxes} tone="healthy" loading={!flow} />
-        <StageStat label="Issued to production" value={s?.issued.kg} unit="kg" icon={ArrowRight} tone="info" loading={!flow} />
+        <StageStat label="Raw received" totals={s?.received.totals} icon={Boxes} tone="healthy" loading={!flow} />
+        <StageStat label="Issued to production" totals={s?.issued.totals} icon={ArrowRight} tone="info" loading={!flow} />
         <StageStat label="Batches opened" value={s?.batches.opened} unit="" icon={FlaskConical} tone="violet" loading={!flow} />
         <StageStat
           label="Produced"
@@ -352,10 +371,11 @@ export function CompanyBrain() {
               </div>
               {/* Honesty note: the reader must not assume one continuous scale. */}
               <p className="mt-1 text-center text-[11px] leading-snug text-chip-400">
-                Ribbon width is proportional within each half of the chain. Units change at
-                production — raw material is measured in <strong>kg</strong>, finished paint in{' '}
-                <strong>litres/packages</strong> — so the two halves are not on one scale.
-                Every figure shown is the real measured value.
+                Ribbon width is proportional within each half of the chain and is a shape
+                only. Units change along the chain — raw material is measured in{' '}
+                <strong>kg or litres</strong>, finished paint in <strong>litres/packages</strong>{' '}
+                — so the halves are not on one scale. Every figure shown is a real measured
+                value, broken out per unit; kilograms and litres are never added together.
               </p>
             </>
           ) : (
@@ -404,7 +424,7 @@ export function CompanyBrain() {
                             />
                             {d.department}
                           </td>
-                          <td className="py-2 text-right tabular">{d.kg} kg</td>
+                          <td className="py-2 text-right tabular">{formatUnitTotals(d.totals)}</td>
                           <td className="py-2 text-right tabular">{prod?.batches ?? 0}</td>
                           <td className="py-2 text-right tabular">
                             {prod ? (prod.litres > 0 ? `${prod.litres} L` : `${prod.kg} kg`) : '—'}
@@ -442,9 +462,9 @@ export function CompanyBrain() {
                 <Metric label="Awaiting dispatch" value={`${flow.derived.awaitingDispatchUnits} units`} hint="Produced and waiting to leave the factory." />
                 <Metric
                   label="Discarded"
-                  value={`${flow.stages.discarded.kg} kg`}
+                  value={formatUnitTotals(flow.stages.discarded.totals)}
                   hint="Waste and damage recorded against raw stock."
-                  tone={flow.stages.discarded.kg > 0 ? 'critical' : undefined}
+                  tone={flow.stages.discarded.totals.length > 0 ? 'critical' : undefined}
                 />
               </>
             )}
@@ -456,9 +476,14 @@ export function CompanyBrain() {
 }
 
 function StageStat({
-  label, value, unit, sub, icon: Icon, tone, loading,
+  label, value, unit, totals, sub, icon: Icon, tone, loading,
 }: {
-  label: string; value?: number; unit: string; sub?: string
+  label: string
+  /** Either a plain number + unit, OR a per-unit breakdown that must not be blended. */
+  value?: number
+  unit?: string
+  totals?: UnitTotal[]
+  sub?: string
   icon: typeof Boxes; tone: 'healthy' | 'info' | 'violet' | 'amber'; loading: boolean
 }) {
   const TONE: Record<string, string> = {
@@ -481,9 +506,23 @@ function StageStat({
         <span className="text-label uppercase text-chip-500">{label}</span>
         <Icon className="h-4 w-4 shrink-0 opacity-40" aria-hidden="true" />
       </div>
+      {/* A mixed-unit figure is shown broken out ("1,200 kg · 340 L"), never summed. */}
       <div className="mt-1.5 flex items-baseline gap-1">
-        <AnimatedNumber value={value ?? 0} className="text-metric text-chip-900" />
-        {unit && <span className="text-sm font-medium text-chip-500">{unit}</span>}
+        {totals && totals.length > 1 ? (
+          <span className="text-lg font-bold text-chip-900">{formatUnitTotals(totals)}</span>
+        ) : (
+          <>
+            <AnimatedNumber
+              value={totals ? (totals[0]?.total ?? 0) : (value ?? 0)}
+              className="text-metric text-chip-900"
+            />
+            {(totals ? (totals[0]?.unit ?? 'kg') : unit) && (
+              <span className="text-sm font-medium text-chip-500">
+                {totals ? (totals[0]?.unit ?? 'kg') : unit}
+              </span>
+            )}
+          </>
+        )}
       </div>
       {sub && <div className="mt-1 text-xs text-chip-500">{sub}</div>}
     </div>
@@ -510,14 +549,14 @@ function DrillDown({ node, flow, onClose }: { node: FlowNode; flow: FactoryFlow;
   const rows: { label: string; value: string }[] = []
 
   if (node.key === 'received') {
-    rows.push({ label: 'Total received', value: `${s.received.kg} kg` })
+    rows.push({ label: 'Total received', value: formatUnitTotals(s.received.totals) })
     rows.push({ label: 'Stock movements', value: `${s.received.movements}` })
   } else if (['PU', 'ENAMEL', 'POWDER'].includes(node.key)) {
     const d = node.key as Department
     const iss = s.issued.byDepartment.find((x) => x.department === d)
     const prod = s.produced.byDepartment.find((x) => x.department === d)
     const disp = s.dispatched.byDepartment.find((x) => x.department === d)
-    rows.push({ label: 'Issued to this department', value: `${iss?.kg ?? 0} kg` })
+    rows.push({ label: 'Issued to this department', value: formatUnitTotals(iss?.totals) })
     rows.push({ label: 'Issue movements', value: `${iss?.movements ?? 0}` })
     rows.push({ label: 'Batches opened', value: `${prod?.batches ?? 0}` })
     rows.push({ label: 'Produced', value: prod ? (prod.litres > 0 ? `${prod.litres} L` : `${prod.kg} kg`) : '—' })
@@ -534,7 +573,7 @@ function DrillDown({ node, flow, onClose }: { node: FlowNode; flow: FactoryFlow;
   } else if (node.key === 'awaiting') {
     rows.push({ label: 'Units awaiting dispatch', value: `${flow.derived.awaitingDispatchUnits}` })
   } else if (node.key === 'discarded') {
-    rows.push({ label: 'Discarded', value: `${s.discarded.kg} kg` })
+    rows.push({ label: 'Discarded', value: formatUnitTotals(s.discarded.totals) })
   }
 
   return (

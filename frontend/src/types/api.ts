@@ -173,8 +173,8 @@ export interface RequestSummary {
   items: {
     total: number
     byStatus: Record<RequestStatus, number>
-    totalRequestedKg: number
-    totalIssuedKg: number
+    requestedTotals: UnitTotal[]
+    issuedTotals: UnitTotal[]
   }
 }
 
@@ -250,7 +250,7 @@ export interface StockLevelMaterial {
 export interface StockLevels {
   materials: StockLevelMaterial[]
   /** Factory-wide totals, one per measure — litres and kilograms are never summed together. */
-  totalsByUnit: { unit: string; totalBalance: number; unitCount: number }[]
+  totalsByUnit: UnitTotal[]
   /** Kilogram-only total (retained for compatibility). */
   grandTotalKg: number
   unitCount: number
@@ -270,9 +270,20 @@ export interface CreateStockTransaction {
 // ── Phase 2: Analytics dashboards (Step 8 enhancement) ──
 export type StockAlertLevel = 'CRITICAL' | 'LOW'
 
+/**
+ * A quantity total that is ALWAYS unit-aware. The backend groups by unit and never
+ * blends kilograms and litres — one entry when uniform, several when mixed. Render with
+ * `formatUnitTotals` (lib/units), which yields "97.8 kg" or "1,200 kg · 340 L".
+ */
+export interface UnitTotal {
+  unit: string
+  total: number
+}
+
 export interface StockAlert {
   materialName: string
   sku: string | null
+  stockUnit: string
   totalKg: number
   unitCount: number
   level: StockAlertLevel
@@ -290,31 +301,48 @@ export interface MovementPoint {
   DEDUCT: number
   DISCARD: number
 }
+/** Each type's total split by unit — kg and L are never summed into one figure. */
 export interface MovementTotals {
-  today: Record<StockTxnType, number>
-  window: Record<StockTxnType, number>
-  allTime: Record<StockTxnType, number>
+  today: Record<StockTxnType, UnitTotal[]>
+  window: Record<StockTxnType, UnitTotal[]>
+  allTime: Record<StockTxnType, UnitTotal[]>
   windowDays: number
 }
 export interface MaterialTotal {
   materialName: string
   sku: string | null
+  unit: string
   totalKg: number
+}
+
+/** Per-department requested / approved / issued, each split by unit. */
+export interface Fulfilment {
+  requested: UnitTotal[]
+  approved: UnitTotal[]
+  issued: UnitTotal[]
+}
+
+/** On-hand snapshot — totals split by unit; grandTotalKg is the kilogram-only slice. */
+export interface StockSnapshot {
+  totalsByUnit: UnitTotal[]
+  grandTotalKg: number
+  unitCount: number
+  materialCount: number
 }
 
 export interface AdminAnalytics {
   windowDays: number
   lowStock: LowStock
   ageing: AgeingStock
-  snapshot: { grandTotalKg: number; unitCount: number; materialCount: number }
+  snapshot: StockSnapshot
   totals: MovementTotals
   series: MovementPoint[]
   requestsByStatus: Record<RequestStatus, number>
-  consumptionByDept: { department: Department; deductedKg: number }[]
+  consumptionByDept: { department: Department; totals: UnitTotal[] }[]
   topConsumed: MaterialTotal[]
-  fulfilment: Record<Department, { requestedKg: number; approvedKg: number; issuedKg: number }>
+  fulfilment: Record<Department, Fulfilment>
   recentActivity: {
-    movements: (StockTransaction & { material?: { uniqueId: string; materialName: string; sku: string | null } })[]
+    movements: (StockTransaction & { material?: { uniqueId: string; materialName: string; sku: string | null; stockUnit?: string } })[]
     reviews: { id: string; department: Department; status: RequestStatus; reviewedAt: string | null; reviewedBy: { name: string } | null }[]
   }
 }
@@ -323,19 +351,19 @@ export interface StoreAnalytics {
   windowDays: number
   lowStock: LowStock
   ageing: AgeingStock
-  snapshot: { grandTotalKg: number; unitCount: number; materialCount: number }
+  snapshot: StockSnapshot
   totals: MovementTotals
   series: MovementPoint[]
   queue: { pendingLines: number; openRequests: number }
   topRequested: MaterialTotal[]
-  recentIssues: (StockTransaction & { material?: { uniqueId: string; materialName: string; sku: string | null } })[]
+  recentIssues: (StockTransaction & { material?: { uniqueId: string; materialName: string; sku: string | null; stockUnit?: string } })[]
 }
 
 export interface MyAnalytics {
   department: Department
   windowDays: number
   requestsByStatus: Record<RequestStatus, number>
-  fulfilment: { requestedKg: number; approvedKg: number; issuedKg: number }
+  fulfilment: Fulfilment
   consumptionSeries: MovementPoint[]
   totals: MovementTotals
   recentRequests: {
@@ -344,7 +372,7 @@ export interface MyAnalytics {
     createdAt: string
     reviewedAt: string | null
     note: string | null
-    items: { status: RequestStatus; requestedKg: number; approvedKg: number | null; issuedKg: number }[]
+    items: { status: RequestStatus; requestedKg: number; unit: string; approvedKg: number | null; issuedKg: number }[]
   }[]
 }
 
@@ -369,7 +397,7 @@ export interface Overview {
       reviewedBy: { name: string } | null
     }[]
     movements: (StockTransaction & {
-      material?: { uniqueId: string; materialName: string; sku: string | null }
+      material?: { uniqueId: string; materialName: string; sku: string | null; stockUnit?: string }
     })[]
   }
 }
@@ -390,9 +418,10 @@ export interface Batch {
   totals: {
     lineCount: number
     requestCount: number
-    requestedKg: number
-    approvedKg: number
-    issuedKg: number
+    /** Each split by unit — a batch fed by kg and L never reports one blended figure. */
+    requested: UnitTotal[]
+    approved: UnitTotal[]
+    issued: UnitTotal[]
   }
   _count?: { requestItems: number; productionOutputs: number; finishedGoods: number }
 }
@@ -457,7 +486,8 @@ export interface BatchTrace {
   in: {
     lineCount: number
     requestCount: number
-    totalIssuedKg: number
+    /** Issued totals grouped by measure — kg and L are never added together. */
+    totalIssuedByUnit: UnitTotal[]
     materials: {
       lineId: string
       materialName: string
@@ -465,6 +495,8 @@ export interface BatchTrace {
       requestedKg: number
       approvedKg: number | null
       issuedKg: number
+      /** Measure of the three figures above — "kg" or "L". */
+      unit: string
       status: RequestStatus
       issues: { transactionId: string; quantityKg: number; at: string; by?: { name: string }; unit: { uniqueId: string; materialName: string; supplier: string | null; poNumber: string | null; arrivedAt: string | null } | null }[]
     }[]
@@ -496,9 +528,9 @@ export interface StockAgeing {
   thresholds: { amberDays: number; redDays: number }
   units: StockAgeingRow[]
   buckets: {
-    fresh: { label: string; unitCount: number; totalKg: number }
-    amber: { label: string; unitCount: number; totalKg: number }
-    red: { label: string; unitCount: number; totalKg: number }
+    fresh: { label: string; unitCount: number; totals: UnitTotal[] }
+    amber: { label: string; unitCount: number; totals: UnitTotal[] }
+    red: { label: string; unitCount: number; totals: UnitTotal[] }
   }
   oldestAgeDays: number
   totalUnits: number
@@ -538,9 +570,10 @@ export interface DispatchAnalytics {
 export interface FactoryFlow {
   range: { from: string; to: string }
   stages: {
-    received: { kg: number; movements: number }
-    issued: { kg: number; byDepartment: { department: Department; kg: number; movements: number }[] }
-    discarded: { kg: number }
+    // Raw material is kg OR litres — carried as a per-unit breakdown, never blended.
+    received: { totals: UnitTotal[]; movements: number }
+    issued: { totals: UnitTotal[]; byDepartment: { department: Department; totals: UnitTotal[]; movements: number }[] }
+    discarded: { totals: UnitTotal[] }
     batches: { opened: number }
     produced: {
       litres: number

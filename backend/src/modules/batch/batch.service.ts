@@ -9,6 +9,7 @@ import {
   ownDepartment,
 } from '../../common/auth/department-scope';
 import { CreateBatchDto } from './dto/create-batch.dto';
+import { unitTotals } from '../../common/unit-total';
 
 /** A batch whose output is already confirmed/closed — extra requests warn, never block. */
 export function isBatchLocked(status: BatchStatus): boolean {
@@ -108,16 +109,19 @@ export class BatchService {
    * batches are a record rather than free text — top-ups add, never duplicate.
    */
   private async withTotals<T extends { id: string; status: BatchStatus }>(batch: T) {
-    const [lineAgg, issued] = await Promise.all([
-      this.prisma.productionRequestItem.aggregate({
+    // Grouped by the line's unit throughout: a batch can consume pigment (kg) and
+    // solvent (L), and those must never be added into one figure.
+    const [lineByUnit, issuedRows] = await Promise.all([
+      this.prisma.productionRequestItem.groupBy({
+        by: ['unit'],
         where: { batchId: batch.id },
         _sum: { requestedKg: true, approvedKg: true, issuedKg: true },
         _count: { _all: true },
       }),
       // Authoritative consumed figure straight from the append-only ledger.
-      this.prisma.stockTransaction.aggregate({
+      this.prisma.stockTransaction.findMany({
         where: { type: StockTxnType.DEDUCT, requestItem: { batchId: batch.id } },
-        _sum: { quantityKg: true },
+        select: { quantityKg: true, requestItem: { select: { unit: true } } },
       }),
     ]);
 
@@ -131,11 +135,11 @@ export class BatchService {
     return {
       ...batch,
       totals: {
-        lineCount: lineAgg._count._all,
+        lineCount: lineByUnit.reduce((s, r) => s + r._count._all, 0),
         requestCount: reqs.length,
-        requestedKg: round(lineAgg._sum.requestedKg ?? 0),
-        approvedKg: round(lineAgg._sum.approvedKg ?? 0),
-        issuedKg: round(issued._sum.quantityKg ?? 0),
+        requested: unitTotals(lineByUnit.map((r) => ({ unit: r.unit, qty: r._sum.requestedKg ?? 0 }))),
+        approved: unitTotals(lineByUnit.map((r) => ({ unit: r.unit, qty: r._sum.approvedKg ?? 0 }))),
+        issued: unitTotals(issuedRows.map((r) => ({ unit: r.requestItem?.unit ?? 'kg', qty: r.quantityKg }))),
       },
       locked: isBatchLocked(batch.status),
     };
@@ -197,6 +201,7 @@ export class BatchService {
       requestedKg: l.requestedKg,
       approvedKg: l.approvedKg,
       issuedKg: l.issuedKg,
+      unit: l.unit, // measure of the three figures above — "kg" or "L"
       status: l.status,
       issues: l.transactions.map((t) => ({
         transactionId: t.id,
@@ -255,8 +260,13 @@ export class BatchService {
     });
 
     const allFg = outputs.flatMap((o) => o.finishedGoods);
-    const totalIssuedKg = round(
-      materialsIn.reduce((s, l) => s + l.issues.reduce((a, i) => a + i.quantityKg, 0), 0),
+    // Grouped by the line's unit — a batch fed by both pigment (kg) and solvent (L) must
+    // never report one blended "total issued".
+    const totalIssuedByUnit = unitTotals(
+      materialsIn.map((l) => ({
+        unit: l.unit,
+        qty: l.issues.reduce((a, i) => a + i.quantityKg, 0),
+      })),
     );
 
     return {
@@ -272,7 +282,7 @@ export class BatchService {
       in: {
         lineCount: materialsIn.length,
         requestCount: new Set(materialsIn.map((l) => l.requestId)).size,
-        totalIssuedKg,
+        totalIssuedByUnit,
         materials: materialsIn,
         sources: [...sources.values()],
       },

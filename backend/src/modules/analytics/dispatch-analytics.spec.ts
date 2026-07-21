@@ -43,17 +43,33 @@ describe('analytics access control', () => {
 });
 
 describe('DispatchAnalyticsService.flow — unit correctness', () => {
-  /** Minimal Prisma double returning whatever each call needs. */
-  const build = (over: Record<string, unknown> = {}) => {
+  /**
+   * Minimal Prisma double. The service reads raw-material transactions row-by-row
+   * (with each row's material.stockUnit) so totals can be split by unit; the double
+   * routes stockTransaction.findMany by transaction type the same way.
+   */
+  const build = (over: {
+    added?: Array<{ quantityKg: number; unit: string }>;
+    issued?: Array<{ quantityKg: number; unit: string; department: string }>;
+    outputs?: Array<Record<string, unknown>>;
+  } = {}) => {
+    const txnRows = (rows: Array<{ quantityKg: number; unit: string; department?: string }>) =>
+      rows.map((r) => ({
+        quantityKg: r.quantityKg,
+        department: r.department ?? null,
+        material: { stockUnit: r.unit },
+      }));
     const base = {
       stockTransaction: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quantityKg: 0 }, _count: { _all: 0 } }),
-        groupBy: jest.fn().mockResolvedValue([]),
+        findMany: jest.fn().mockImplementation(({ where }: { where: { type: string } }) => {
+          if (where.type === 'ADD') return Promise.resolve(txnRows(over.added ?? []));
+          if (where.type === 'DEDUCT') return Promise.resolve(txnRows(over.issued ?? []));
+          return Promise.resolve([]); // DISCARD
+        }),
       },
-      productionOutput: { findMany: jest.fn().mockResolvedValue([]) },
+      productionOutput: { findMany: jest.fn().mockResolvedValue(over.outputs ?? []) },
       finishedGood: { count: jest.fn().mockResolvedValue(0), findMany: jest.fn().mockResolvedValue([]) },
       batch: { findMany: jest.fn().mockResolvedValue([]) },
-      ...over,
     };
     return new DispatchAnalyticsService(base as never);
   };
@@ -62,12 +78,10 @@ describe('DispatchAnalyticsService.flow — unit correctness', () => {
 
   it('never sums litres and kilograms together', async () => {
     const svc = build({
-      productionOutput: {
-        findMany: jest.fn().mockResolvedValue([
-          { packageCount: 10, sizePerPackage: 20, sizeUnit: 'L', productName: 'A', batch: { department: 'PU' } },
-          { packageCount: 4, sizePerPackage: 25, sizeUnit: 'Kg', productName: 'B', batch: { department: 'PU' } },
-        ]),
-      },
+      outputs: [
+        { packageCount: 10, sizePerPackage: 20, sizeUnit: 'L', productName: 'A', batch: { department: 'PU' } },
+        { packageCount: 4, sizePerPackage: 25, sizeUnit: 'Kg', productName: 'B', batch: { department: 'PU' } },
+      ],
     });
     const r = await svc.flow(range.from, range.to);
     // 10x20 L = 200 L and 4x25 kg = 100 kg must stay apart, NOT become 300 of anything.
@@ -76,17 +90,32 @@ describe('DispatchAnalyticsService.flow — unit correctness', () => {
     expect(r.stages.produced.packages).toBe(14);
   });
 
+  it('splits mixed-unit RAW material per unit — received/issued never blend', async () => {
+    const svc = build({
+      added: [{ quantityKg: 100, unit: 'kg' }, { quantityKg: 200, unit: 'L' }],
+      issued: [{ quantityKg: 60, unit: 'kg', department: 'PU' }, { quantityKg: 50, unit: 'L', department: 'PU' }],
+    });
+    const r = await svc.flow(range.from, range.to);
+    expect(r.stages.received.totals).toEqual([
+      { unit: 'kg', total: 100 },
+      { unit: 'L', total: 200 },
+    ]);
+    expect(r.stages.issued.totals).toEqual([
+      { unit: 'kg', total: 60 },
+      { unit: 'L', total: 50 },
+    ]);
+    // The forbidden blends must not exist anywhere: 300 in, 110 issued.
+    expect(r.stages.received.totals.some((t) => t.total === 300)).toBe(false);
+    expect(r.stages.issued.totals.some((t) => t.total === 110)).toBe(false);
+  });
+
   it('returns a null yield when output is litres and input is kilograms', async () => {
     const svc = build({
-      stockTransaction: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quantityKg: 500 }, _count: { _all: 3 } }),
-        groupBy: jest.fn().mockResolvedValue([{ department: 'PU', _sum: { quantityKg: 400 }, _count: { _all: 2 } }]),
-      },
-      productionOutput: {
-        findMany: jest.fn().mockResolvedValue([
-          { packageCount: 10, sizePerPackage: 20, sizeUnit: 'L', productName: 'A', batch: { department: 'PU' } },
-        ]),
-      },
+      added: [{ quantityKg: 500, unit: 'kg' }],
+      issued: [{ quantityKg: 400, unit: 'kg', department: 'PU' }],
+      outputs: [
+        { packageCount: 10, sizePerPackage: 20, sizeUnit: 'L', productName: 'A', batch: { department: 'PU' } },
+      ],
     });
     const r = await svc.flow(range.from, range.to);
     // 200 L against 400 kg is a category error — report nothing rather than a wrong %.
@@ -96,34 +125,43 @@ describe('DispatchAnalyticsService.flow — unit correctness', () => {
 
   it('computes yield only when both sides are in kilograms', async () => {
     const svc = build({
-      stockTransaction: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quantityKg: 500 }, _count: { _all: 3 } }),
-        groupBy: jest.fn().mockResolvedValue([{ department: 'PU', _sum: { quantityKg: 400 }, _count: { _all: 2 } }]),
-      },
-      productionOutput: {
-        findMany: jest.fn().mockResolvedValue([
-          { packageCount: 12, sizePerPackage: 25, sizeUnit: 'Kg', productName: 'A', batch: { department: 'PU' } },
-        ]),
-      },
+      added: [{ quantityKg: 500, unit: 'kg' }],
+      issued: [{ quantityKg: 400, unit: 'kg', department: 'PU' }],
+      outputs: [
+        { packageCount: 12, sizePerPackage: 25, sizeUnit: 'Kg', productName: 'A', batch: { department: 'PU' } },
+      ],
     });
     const r = await svc.flow(range.from, range.to);
     expect(r.stages.produced.kg).toBe(300); // 12 x 25
     expect(r.derived.yieldPct).toBe(75); // 300 / 400
   });
 
+  it('yield uses ONLY the kg slice of issued when litres were issued too', async () => {
+    // 400 kg + 100 L issued, 300 kg produced. Yield must be 300/400 = 75%, not
+    // 300/500 = 60% — the litres have no place in a kg ratio.
+    const svc = build({
+      added: [{ quantityKg: 500, unit: 'kg' }],
+      issued: [
+        { quantityKg: 400, unit: 'kg', department: 'PU' },
+        { quantityKg: 100, unit: 'L', department: 'PU' },
+      ],
+      outputs: [
+        { packageCount: 12, sizePerPackage: 25, sizeUnit: 'Kg', productName: 'A', batch: { department: 'PU' } },
+      ],
+    });
+    const r = await svc.flow(range.from, range.to);
+    expect(r.derived.yieldPct).toBe(75);
+  });
+
   it('never reports a negative in-process figure', async () => {
     // Producing more than was issued in the window (material issued earlier) must not
     // surface as a negative quantity.
     const svc = build({
-      stockTransaction: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quantityKg: 10 }, _count: { _all: 1 } }),
-        groupBy: jest.fn().mockResolvedValue([{ department: 'PU', _sum: { quantityKg: 5 }, _count: { _all: 1 } }]),
-      },
-      productionOutput: {
-        findMany: jest.fn().mockResolvedValue([
-          { packageCount: 100, sizePerPackage: 25, sizeUnit: 'Kg', productName: 'A', batch: { department: 'PU' } },
-        ]),
-      },
+      added: [{ quantityKg: 10, unit: 'kg' }],
+      issued: [{ quantityKg: 5, unit: 'kg', department: 'PU' }],
+      outputs: [
+        { packageCount: 100, sizePerPackage: 25, sizeUnit: 'Kg', productName: 'A', batch: { department: 'PU' } },
+      ],
     });
     const r = await svc.flow(range.from, range.to);
     expect(r.derived.inProcessKg).toBeGreaterThanOrEqual(0);

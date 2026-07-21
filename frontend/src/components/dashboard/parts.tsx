@@ -52,7 +52,7 @@ export function AgeingStockPanel({ ageing }: { ageing: AgeingStock }) {
                 <span className="min-w-0 flex-1 truncate">
                   <span className="font-mono text-xs text-chip-600">{u.uniqueId}</span> · {u.materialName}
                 </span>
-                <span className="shrink-0 text-xs text-chip-500">{u.balanceKg} kg</span>
+                <span className="shrink-0 text-xs text-chip-500">{u.balanceKg} {u.stockUnit}</span>
                 <span className={`shrink-0 text-xs font-semibold ${red ? 'text-critical' : 'text-brand-amber'}`}>
                   {u.ageDays}d · {fmtDate(u.arrivedAt)}
                 </span>
@@ -106,7 +106,7 @@ export function LowStockAlerts({ lowStock }: { lowStock: LowStock }) {
                 <div className="text-xl font-bold leading-none">
                   <AnimatedNumber value={a.totalKg} />
                 </div>
-                <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider">kg left</div>
+                <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider">{a.stockUnit} left</div>
               </div>
             </div>
           )

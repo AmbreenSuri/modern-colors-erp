@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Department, FgStatus, StockTxnType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { unitTotals, mergeUnitTotals, kgOnly } from '../../common/unit-total';
 
 /** Local copies of the shared window helpers, kept private to this service. */
 function startOfToday(): Date {
@@ -231,26 +232,24 @@ export class DispatchAnalyticsService {
   async flow(from: Date, to: Date) {
     const range = { gte: from, lte: to };
 
-    const [received, issuedRows, discarded, outputs, fgCreated, fgDispatched, batches] =
+    const [receivedRows, issuedRows, discardedRows, outputs, fgCreated, fgDispatched, batches] =
       await Promise.all([
-        // Raw material IN — the ADD ledger is the only honest source.
-        this.prisma.stockTransaction.aggregate({
+        // Raw material IN — the ADD ledger is the only honest source. Read with each
+        // row's material unit so the total can be split by unit, never blended.
+        this.prisma.stockTransaction.findMany({
           where: { type: StockTxnType.ADD, createdAt: range },
-          _sum: { quantityKg: true },
-          _count: { _all: true },
+          select: { quantityKg: true, material: { select: { stockUnit: true } } },
         }),
 
         // Issued to each department.
-        this.prisma.stockTransaction.groupBy({
-          by: ['department'],
+        this.prisma.stockTransaction.findMany({
           where: { type: StockTxnType.DEDUCT, department: { not: null }, createdAt: range },
-          _sum: { quantityKg: true },
-          _count: { _all: true },
+          select: { department: true, quantityKg: true, material: { select: { stockUnit: true } } },
         }),
 
-        this.prisma.stockTransaction.aggregate({
+        this.prisma.stockTransaction.findMany({
           where: { type: StockTxnType.DISCARD, createdAt: range },
-          _sum: { quantityKg: true },
+          select: { quantityKg: true, material: { select: { stockUnit: true } } },
         }),
 
         // Production output, by department, confirmed only.
@@ -282,18 +281,22 @@ export class DispatchAnalyticsService {
         }),
       ]);
 
-    const receivedKg = Number((received._sum.quantityKg ?? 0).toFixed(3));
-    const discardedKg = Number((discarded._sum.quantityKg ?? 0).toFixed(3));
+    // Raw material is measured in kg OR litres. Group by unit and never blend the two.
+    const receivedTotals = unitTotals(receivedRows.map((r) => ({ unit: r.material?.stockUnit ?? 'kg', qty: r.quantityKg })));
+    const discardedTotals = unitTotals(discardedRows.map((r) => ({ unit: r.material?.stockUnit ?? 'kg', qty: r.quantityKg })));
 
     const issuedByDept = DEPARTMENTS.map((d) => {
-      const row = issuedRows.find((r) => r.department === d);
+      const rows = issuedRows.filter((r) => r.department === d);
       return {
         department: d,
-        kg: Number((row?._sum.quantityKg ?? 0).toFixed(3)),
-        movements: row?._count._all ?? 0,
+        totals: unitTotals(rows.map((r) => ({ unit: r.material?.stockUnit ?? 'kg', qty: r.quantityKg }))),
+        movements: rows.length,
       };
     });
-    const issuedKg = Number(issuedByDept.reduce((s, d) => s + d.kg, 0).toFixed(3));
+    const issuedTotals = mergeUnitTotals(issuedByDept.map((d) => d.totals));
+    // Yield and in-process compare finished KG against raw KG, so they use the
+    // kilogram-only slice of what was issued — a litres figure has no place in a kg ratio.
+    const issuedKgOnly = kgOnly(issuedTotals);
 
     // Produced, per department, split by unit because L and Kg cannot be added.
     const producedByDept = DEPARTMENTS.map((d) => {
@@ -357,24 +360,24 @@ export class DispatchAnalyticsService {
      * confident-looking wrong number.
      */
     const yieldPct =
-      issuedKg > 0 && producedTotals.kg > 0
-        ? Number(((producedTotals.kg / issuedKg) * 100).toFixed(1))
+      issuedKgOnly > 0 && producedTotals.kg > 0
+        ? Number(((producedTotals.kg / issuedKgOnly) * 100).toFixed(1))
         : null;
 
     return {
       range: { from: from.toISOString(), to: to.toISOString() },
       stages: {
-        received: { kg: receivedKg, movements: received._count._all },
-        issued: { kg: issuedKg, byDepartment: issuedByDept },
-        discarded: { kg: discardedKg },
+        received: { totals: receivedTotals, movements: receivedRows.length },
+        issued: { totals: issuedTotals, byDepartment: issuedByDept },
+        discarded: { totals: discardedTotals },
         batches: { opened: batches.length },
         produced: { ...producedTotals, byDepartment: producedByDept, fgUnitsCreated: fgCreated },
         dispatched: { ...dispatchedTotals, byDepartment: dispatchedByDept },
       },
       derived: {
         yieldPct,
-        // What was issued but has not yet come out the other side as finished goods.
-        inProcessKg: Number(Math.max(0, issuedKg - producedTotals.kg).toFixed(3)),
+        // Issued to production but not yet finished goods — KG only (see issuedKgOnly).
+        inProcessKg: Number(Math.max(0, issuedKgOnly - producedTotals.kg).toFixed(3)),
         awaitingDispatchUnits: Math.max(0, fgCreated - dispatchedTotals.units),
       },
     };

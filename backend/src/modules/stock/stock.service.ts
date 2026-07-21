@@ -10,6 +10,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
 import { CreateStockTransactionDto } from './dto/create-stock-transaction.dto';
 import { AGEING, ageDays, ageingLevel as ageingLevelFor, fifoSort, olderUnitsThan } from './fifo.util';
+import { unitTotals, kgOnly, type UnitTotal } from '../../common/unit-total';
 
 const unitSelect = {
   id: true,
@@ -160,28 +161,24 @@ export class StockService {
       };
     });
 
-    const sumKg = (f: (d: number) => boolean) =>
-      Number(rows.filter((r) => f(r.ageDays)).reduce((s, r) => s + r.balanceKg, 0).toFixed(6));
+    // Each bucket's quantity is split by unit — never a blended kg+L total (see
+    // common/unit-total). `totals` is one entry when uniform, several when mixed.
+    const bucket = (label: string, pred: (d: number) => boolean) => {
+      const us = rows.filter((r) => pred(r.ageDays));
+      return {
+        label,
+        unitCount: us.length,
+        totals: unitTotals(us.map((r) => ({ unit: r.stockUnit, qty: r.balanceKg }))),
+      };
+    };
 
     return {
       thresholds: { amberDays: AGEING.AMBER_DAYS, redDays: AGEING.RED_DAYS },
       units: rows, // oldest first
       buckets: {
-        fresh: {
-          label: `Under ${AGEING.AMBER_DAYS} days`,
-          unitCount: rows.filter((r) => r.level === 'FRESH').length,
-          totalKg: sumKg((d) => d < AGEING.AMBER_DAYS),
-        },
-        amber: {
-          label: `${AGEING.AMBER_DAYS}–${AGEING.RED_DAYS - 1} days`,
-          unitCount: rows.filter((r) => r.level === 'AMBER').length,
-          totalKg: sumKg((d) => d >= AGEING.AMBER_DAYS && d < AGEING.RED_DAYS),
-        },
-        red: {
-          label: `${AGEING.RED_DAYS}+ days`,
-          unitCount: rows.filter((r) => r.level === 'RED').length,
-          totalKg: sumKg((d) => d >= AGEING.RED_DAYS),
-        },
+        fresh: bucket(`Under ${AGEING.AMBER_DAYS} days`, (d) => d < AGEING.AMBER_DAYS),
+        amber: bucket(`${AGEING.AMBER_DAYS}–${AGEING.RED_DAYS - 1} days`, (d) => d >= AGEING.AMBER_DAYS && d < AGEING.RED_DAYS),
+        red: bucket(`${AGEING.RED_DAYS}+ days`, (d) => d >= AGEING.RED_DAYS),
       },
       oldestAgeDays: rows[0]?.ageDays ?? 0,
       totalUnits: rows.length,
@@ -260,23 +257,11 @@ export class StockService {
     );
 
     // Factory-wide totals are split BY UNIT — kilograms and litres are never added into
-    // one number (the same rule the dispatch analytics enforce). Each entry is one
-    // measure's total across all materials in it.
-    const byUnit = new Map<string, { totalBalance: number; unitCount: number }>();
-    for (const m of materials) {
-      const t = byUnit.get(m.stockUnit) ?? { totalBalance: 0, unitCount: 0 };
-      t.totalBalance = Number((t.totalBalance + m.totalBalanceKg).toFixed(6));
-      t.unitCount += m.unitCount;
-      byUnit.set(m.stockUnit, t);
-    }
-    const totalsByUnit = [...byUnit.entries()]
-      .map(([unit, t]) => ({ unit, ...t }))
-      .sort((a, b) => (a.unit === 'kg' ? -1 : b.unit === 'kg' ? 1 : a.unit.localeCompare(b.unit)));
-
+    // one number (the same rule the dispatch analytics enforce).
+    const totalsByUnit = unitTotals(materials.map((m) => ({ unit: m.stockUnit, qty: m.totalBalanceKg })));
     // grandTotalKg is retained for compatibility but is now the kilogram-only total, so
     // it can never silently include litres.
-    const grandTotalKg = totalsByUnit.find((t) => t.unit === 'kg')?.totalBalance ?? 0;
-    return { materials, totalsByUnit, grandTotalKg, unitCount: units.length };
+    return { materials, totalsByUnit, grandTotalKg: kgOnly(totalsByUnit), unitCount: units.length };
   }
 
   /**

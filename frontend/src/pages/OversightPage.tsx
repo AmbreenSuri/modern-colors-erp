@@ -24,6 +24,7 @@ import { HeroMetric } from '@/components/dashboard/HeroMetric'
 import { CompanyBrain } from '@/components/dashboard/CompanyBrain'
 import { DispatchAnalytics } from '@/components/dashboard/DispatchAnalytics'
 import { cn } from '@/lib/utils'
+import { formatUnitTotals, kgOnly } from '@/lib/units'
 
 const DEPARTMENTS: Department[] = ['PU', 'ENAMEL', 'POWDER']
 const STATUSES: RequestStatus[] = ['PENDING', 'IN_PROGRESS', 'APPROVED', 'PARTIAL', 'REJECTED']
@@ -103,13 +104,20 @@ export function OversightPage() {
   if (!data) return <DashboardSkeleton title="Factory oversight" />
 
   const statusData = STATUSES.map((s) => ({ label: s.replace('_', ' '), value: data.requestsByStatus[s] }))
-  const consumptionData = data.consumptionByDept.map((c) => ({ label: DEPT_LABEL[c.department], value: c.deductedKg }))
+  // Comparative charts are driven by the kilogram slice only — a single axis can't mix kg
+  // and L. The full per-unit truth is in the headline KPIs and the Company Brain.
+  const consumptionData = data.consumptionByDept.map((c) => ({ label: DEPT_LABEL[c.department], value: kgOnly(c.totals) }))
   const topData = data.topConsumed.map((m) => ({ label: m.sku ?? m.materialName.slice(0, 10), value: m.totalKg }))
   const fulfilmentData = DEPARTMENTS.map((d) => ({
     label: DEPT_LABEL[d],
-    requested: data.fulfilment[d]?.requestedKg ?? 0,
-    issued: data.fulfilment[d]?.issuedKg ?? 0,
+    requested: kgOnly(data.fulfilment[d]?.requested),
+    issued: kgOnly(data.fulfilment[d]?.issued),
   }))
+  // In-hand stock, split by unit. The hero animates the primary (kg-first) figure; any
+  // other unit is surfaced in the context line so nothing is hidden or blended.
+  const onHand = data.snapshot.totalsByUnit
+  const heroPrimary = onHand[0] ?? { unit: 'kg', total: 0 }
+  const heroOther = onHand.slice(1).map((t) => `${t.total} ${t.unit}`).join(' · ')
 
   return (
     <div className="space-y-4">
@@ -150,10 +158,10 @@ export function OversightPage() {
           ───────────────────────────────────────────────────────────────── */}
       <HeroMetric
         label="In-hand stock"
-        value={data.snapshot.grandTotalKg}
-        suffix="kg"
+        value={heroPrimary.total}
+        suffix={heroPrimary.unit}
         icon={Boxes}
-        context={`${data.snapshot.unitCount} units · ${data.snapshot.materialCount} materials · across ${DEPARTMENTS.length} departments`}
+        context={`${heroOther ? `+ ${heroOther} · ` : ''}${data.snapshot.unitCount} units · ${data.snapshot.materialCount} materials · across ${DEPARTMENTS.length} departments`}
       />
 
       <AgeingStockPanel ageing={data.ageing} />
@@ -161,26 +169,26 @@ export function OversightPage() {
       {/* Supporting KPIs. The hero above carries in-hand stock, so this row
           covers movement over the selected window. */}
       <div className="stagger grid gap-3 sm:grid-cols-3">
-        <Kpi label="Added" value={`${data.totals.window.ADD} kg`} sub={`${data.totals.today.ADD} today · ${data.totals.allTime.ADD} all-time`} tone="success" />
-        <Kpi label="Deducted" value={`${data.totals.window.DEDUCT} kg`} sub={`${data.totals.today.DEDUCT} today · ${data.totals.allTime.DEDUCT} all-time`} tone="info" />
-        <Kpi label="Discarded" value={`${data.totals.window.DISCARD} kg`} sub={`${data.totals.today.DISCARD} today · ${data.totals.allTime.DISCARD} all-time`} tone="danger" />
+        <Kpi label="Added" value={formatUnitTotals(data.totals.window.ADD)} sub={`${formatUnitTotals(data.totals.today.ADD)} today · ${formatUnitTotals(data.totals.allTime.ADD)} all-time`} tone="success" />
+        <Kpi label="Deducted" value={formatUnitTotals(data.totals.window.DEDUCT)} sub={`${formatUnitTotals(data.totals.today.DEDUCT)} today · ${formatUnitTotals(data.totals.allTime.DEDUCT)} all-time`} tone="info" />
+        <Kpi label="Discarded" value={formatUnitTotals(data.totals.window.DISCARD)} sub={`${formatUnitTotals(data.totals.today.DISCARD)} today · ${formatUnitTotals(data.totals.allTime.DISCARD)} all-time`} tone="danger" />
       </div>
 
       {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard title="Stock movement trend" icon={TrendingUp} span2>
+        <ChartCard title="Stock movement trend (kg)" icon={TrendingUp} span2>
           <MovementTrend data={data.series} />
         </ChartCard>
-        <ChartCard title="Consumption by department">
+        <ChartCard title="Consumption by department (kg)">
           <CategoryBars data={consumptionData} colorFor={(l) => DEPT_COLOR[deptFromLabel(l)]} />
         </ChartCard>
         <ChartCard title="Requests by status">
           <Donut data={statusData} colorFor={(l) => STATUS_COLOR[l.replace(' ', '_')]} />
         </ChartCard>
-        <ChartCard title="Top materials consumed">
+        <ChartCard title="Top materials consumed (kg)">
           {topData.length ? <CategoryBars data={topData} /> : <Empty>No consumption in this window yet.</Empty>}
         </ChartCard>
-        <ChartCard title="Fulfilment by department">
+        <ChartCard title="Fulfilment by department (kg)">
           <FulfilmentBars data={fulfilmentData} />
         </ChartCard>
       </div>
@@ -204,7 +212,7 @@ export function OversightPage() {
                     <li key={m.id} className="flex items-center gap-2 py-1.5">
                       <Icon className={`h-4 w-4 shrink-0 ${TXN_META[m.type].cls}`} />
                       <span className="min-w-0 flex-1 truncate">
-                        <span className="font-medium">{m.type} {m.quantityKg} kg</span>{' · '}
+                        <span className="font-medium">{m.type} {m.quantityKg} {m.material?.stockUnit ?? 'kg'}</span>{' · '}
                         <span className="font-mono text-xs">{m.material?.uniqueId ?? '—'}</span>
                         {m.department ? ` · ${m.department}` : ''}
                       </span>
