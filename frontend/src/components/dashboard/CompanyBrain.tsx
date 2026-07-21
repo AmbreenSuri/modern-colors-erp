@@ -305,21 +305,57 @@ export function CompanyBrain() {
         </div>
       </div>
 
-      {/* ── Stage totals ─────────────────────────────────────────────── */}
+      {/* ── Stage totals — the owner's five questions in his own words, with BIG
+          readable figures (kg and L side by side, never summed). The Sankey below
+          keeps the shape of the flow; these cards carry the headline numbers. ── */}
       <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <StageStat label="Raw received" totals={s?.received.totals} icon={Boxes} tone="healthy" loading={!flow} />
-        <StageStat label="Issued to production" totals={s?.issued.totals} icon={ArrowRight} tone="info" loading={!flow} />
-        <StageStat label="Batches opened" value={s?.batches.opened} unit="" icon={FlaskConical} tone="violet" loading={!flow} />
-        <StageStat
-          label="Produced"
-          value={s ? (s.produced.litres || s.produced.kg) : undefined}
-          unit={s && s.produced.litres > 0 ? 'L' : 'kg'}
-          sub={s ? `${s.produced.packages} packages` : undefined}
+        <BigStage
+          label="Received"
+          totals={s?.received.totals}
+          sub={s ? `${s.received.units} sack${s.received.units === 1 ? '' : 's'} & drums came in` : undefined}
+          blocked={s?.received.blockedUnits}
+          icon={Boxes}
+          tone="healthy"
+          loading={!flow}
+        />
+        <BigStage
+          label="Sent to production"
+          totals={s?.issued.totals}
+          sub="to PU, Enamel & Powder"
+          icon={ArrowRight}
+          tone="info"
+          loading={!flow}
+        />
+        <BigStage
+          label="Made"
+          totals={s ? producedTotals(s.produced) : undefined}
+          sub={s ? `${s.produced.packages} package${s.produced.packages === 1 ? '' : 's'} of finished paint · ${s.batches.opened} batch${s.batches.opened === 1 ? '' : 'es'}` : undefined}
           icon={PackageCheck}
           tone="amber"
           loading={!flow}
         />
-        <StageStat label="Dispatched" value={s?.dispatched.units} unit="units" icon={Truck} tone="healthy" loading={!flow} />
+        <BigStage
+          label="Dispatched"
+          totals={s ? [{ unit: 'units', total: s.dispatched.units }] : undefined}
+          sub={s ? dispatchVolumeLabel(s.dispatched) : undefined}
+          icon={Truck}
+          tone="healthy"
+          loading={!flow}
+        />
+        <BigStage
+          label="Still in the factory"
+          rightNow
+          totals={s?.inStore.totals}
+          sub={
+            flow
+              ? `raw material in store · plus ${flow.derived.awaitingDispatchUnits} finished unit${flow.derived.awaitingDispatchUnits === 1 ? '' : 's'} waiting to go`
+              : undefined
+          }
+          blocked={s?.inStore.blockedUnits}
+          icon={FlaskConical}
+          tone="info"
+          loading={!flow}
+        />
       </div>
 
       {/* ── The flow ─────────────────────────────────────────────────── */}
@@ -474,56 +510,94 @@ export function CompanyBrain() {
   )
 }
 
-function StageStat({
-  label, value, unit, totals, sub, icon: Icon, tone, loading,
+/** Litres/kg of production as a per-unit list — shown side by side, never summed. */
+function producedTotals(p: { litres: number; kg: number }): UnitTotal[] {
+  const out: UnitTotal[] = []
+  if (p.litres > 0) out.push({ unit: 'L', total: p.litres })
+  if (p.kg > 0) out.push({ unit: 'kg', total: p.kg })
+  return out.length ? out : [{ unit: 'L', total: 0 }]
+}
+
+function dispatchVolumeLabel(d: { litres: number; kg: number }): string {
+  const parts = [
+    d.litres > 0 ? `${d.litres.toLocaleString('en-IN')} L` : null,
+    d.kg > 0 ? `${d.kg.toLocaleString('en-IN')} kg` : null,
+  ].filter(Boolean)
+  return parts.length ? `${parts.join(' + ')} left the factory` : 'nothing left the factory yet'
+}
+
+const STAGE_TONE: Record<string, string> = {
+  healthy: '[--chip-edge-color:hsl(var(--healthy))]',
+  info: '[--chip-edge-color:hsl(var(--info))]',
+  violet: '[--chip-edge-color:hsl(var(--brand-violet))]',
+  amber: '[--chip-edge-color:hsl(var(--brand-amber))]',
+}
+
+/**
+ * One headline stage card: a plain factory word, a BIG number per measure (kg and L
+ * side by side with a small "+", never summed), one grey context line, and an amber
+ * pill when sacks are blocked on a missing pack weight. "Still in the factory" is a
+ * live snapshot and is visually set apart (dashed + RIGHT NOW) from the period stages.
+ */
+function BigStage({
+  label, totals, sub, blocked, rightNow, icon: Icon, tone, loading,
 }: {
   label: string
-  /** Either a plain number + unit, OR a per-unit breakdown that must not be blended. */
-  value?: number
-  unit?: string
   totals?: UnitTotal[]
   sub?: string
-  icon: typeof Boxes; tone: 'healthy' | 'info' | 'violet' | 'amber'; loading: boolean
+  blocked?: number
+  rightNow?: boolean
+  icon: typeof Boxes
+  tone: 'healthy' | 'info' | 'violet' | 'amber'
+  loading: boolean
 }) {
-  const TONE: Record<string, string> = {
-    healthy: 'text-healthy [--chip-edge-color:hsl(var(--healthy))]',
-    info: 'text-info [--chip-edge-color:hsl(var(--info))]',
-    violet: 'text-brand-violet [--chip-edge-color:hsl(var(--brand-violet))]',
-    amber: 'text-brand-amber [--chip-edge-color:hsl(var(--brand-amber))]',
-  }
   if (loading) {
     return (
       <div className="rounded-lg border bg-card p-4 shadow-elev-1">
         <Skeleton className="h-2.5 w-24" />
-        <Skeleton className="mt-3 h-7 w-24" />
+        <Skeleton className="mt-3 h-9 w-28" />
+        <Skeleton className="mt-2 h-2.5 w-32" />
       </div>
     )
   }
+  const shown = totals && totals.length ? totals : [{ unit: 'kg', total: 0 }]
   return (
-    <div className={cn('chip-edge tactile-lift rounded-lg border bg-card p-4 pl-5 shadow-elev-1', TONE[tone])}>
+    <div
+      className={cn(
+        'chip-edge tactile-lift rounded-lg border bg-card p-4 pl-5 shadow-elev-1',
+        STAGE_TONE[tone],
+        rightNow && 'border-dashed border-info-border bg-info-surface',
+      )}
+    >
       <div className="flex items-start justify-between gap-2">
-        <span className="text-label uppercase text-chip-500">{label}</span>
-        <Icon className="h-4 w-4 shrink-0 opacity-40" aria-hidden="true" />
-      </div>
-      {/* A mixed-unit figure is shown broken out ("1,200 kg · 340 L"), never summed. */}
-      <div className="mt-1.5 flex items-baseline gap-1">
-        {totals && totals.length > 1 ? (
-          <span className="text-lg font-bold text-chip-900">{formatUnitTotals(totals)}</span>
+        <span className={cn('text-label uppercase', rightNow ? 'font-semibold text-info' : 'text-chip-500')}>
+          {label}
+        </span>
+        {rightNow ? (
+          <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider text-info">right now</span>
         ) : (
-          <>
-            <AnimatedNumber
-              value={totals ? (totals[0]?.total ?? 0) : (value ?? 0)}
-              className="text-metric text-chip-900"
-            />
-            {(totals ? (totals[0]?.unit ?? 'kg') : unit) && (
-              <span className="text-sm font-medium text-chip-500">
-                {totals ? (totals[0]?.unit ?? 'kg') : unit}
-              </span>
-            )}
-          </>
+          <Icon className="h-4 w-4 shrink-0 text-chip-400 opacity-60" aria-hidden="true" />
         )}
       </div>
-      {sub && <div className="mt-1 text-xs text-chip-500">{sub}</div>}
+      {/* The big readable figures — one per measure, joined by a small "+". */}
+      <div className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+        {shown.map((t, i) => (
+          <span key={t.unit} className="flex items-baseline gap-1">
+            {i > 0 && <span className="mr-1 text-lg font-bold text-chip-500">+</span>}
+            <AnimatedNumber
+              value={t.total}
+              className="tabular text-[clamp(1.7rem,2.2vw,2.1rem)] font-extrabold leading-none tracking-tight text-chip-900"
+            />
+            <span className="text-sm font-semibold text-chip-500">{t.unit}</span>
+          </span>
+        ))}
+      </div>
+      {sub && <div className="mt-1.5 text-xs leading-snug text-chip-500">{sub}</div>}
+      {blocked != null && blocked > 0 && (
+        <span className="mt-2 inline-block rounded-md bg-warning-surface px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">
+          {blocked} sack{blocked === 1 ? '' : 's'} awaiting pack weight
+        </span>
+      )}
     </div>
   )
 }
