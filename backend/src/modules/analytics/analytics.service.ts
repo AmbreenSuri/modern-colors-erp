@@ -201,6 +201,74 @@ export class AnalyticsService {
     return { today: pick(todayStart), window: pick(windowStart), allTime: pick(), windowDays: days };
   }
 
+  /**
+   * Per-PERSON activity ("PU vs PU2, separately") for a window — the attribution view
+   * that makes multiple heads per department auditable at a glance. Data was always
+   * attributed to user IDs; this surfaces it. Department-scoped for a head's own
+   * dashboard; factory-wide (including Dispatch actors) for the Admin.
+   */
+  private async teamActivity(days: number, department?: Department) {
+    const since = daysAgo(days);
+    const [requests, batches, outputs, dispatched, returns] = await Promise.all([
+      this.prisma.productionRequest.findMany({
+        where: { createdAt: { gte: since }, ...(department ? { department } : {}) },
+        select: { requestedBy: { select: { id: true, name: true, email: true } } },
+      }),
+      this.prisma.batch.findMany({
+        where: { createdAt: { gte: since }, ...(department ? { department } : {}) },
+        select: { createdBy: { select: { id: true, name: true, email: true } } },
+      }),
+      this.prisma.productionOutput.findMany({
+        where: { createdAt: { gte: since }, ...(department ? { batch: { department } } : {}) },
+        select: {
+          confirmed: true,
+          recordedBy: { select: { id: true, name: true, email: true } },
+          confirmedBy: { select: { id: true, name: true, email: true } },
+        },
+      }),
+      department
+        ? Promise.resolve([])
+        : this.prisma.finishedGood.findMany({
+            where: { dispatchedAt: { gte: since } },
+            select: { dispatchedBy: { select: { id: true, name: true, email: true } } },
+          }),
+      department
+        ? Promise.resolve([])
+        : this.prisma.finishedGood.findMany({
+            where: { returnedAt: { gte: since } },
+            select: { returnedBy: { select: { id: true, name: true, email: true } } },
+          }),
+    ]);
+
+    type Person = { id: string; name: string; email: string };
+    const rows = new Map<
+      string,
+      { id: string; name: string; email: string; requestsRaised: number; batchesCreated: number; outputsRecorded: number; outputsConfirmed: number; unitsDispatched: number; returnsProcessed: number }
+    >();
+    const bump = (p: Person | null | undefined, field: 'requestsRaised' | 'batchesCreated' | 'outputsRecorded' | 'outputsConfirmed' | 'unitsDispatched' | 'returnsProcessed') => {
+      if (!p) return;
+      const r =
+        rows.get(p.id) ??
+        { ...p, requestsRaised: 0, batchesCreated: 0, outputsRecorded: 0, outputsConfirmed: 0, unitsDispatched: 0, returnsProcessed: 0 };
+      r[field] += 1;
+      rows.set(p.id, r);
+    };
+    for (const r of requests) bump(r.requestedBy, 'requestsRaised');
+    for (const b of batches) bump(b.createdBy, 'batchesCreated');
+    for (const o of outputs) {
+      bump(o.recordedBy, 'outputsRecorded');
+      if (o.confirmed) bump(o.confirmedBy, 'outputsConfirmed');
+    }
+    for (const f of dispatched) bump(f.dispatchedBy, 'unitsDispatched');
+    for (const f of returns) bump(f.returnedBy, 'returnsProcessed');
+
+    return [...rows.values()].sort(
+      (a, b) =>
+        b.requestsRaised + b.batchesCreated + b.outputsRecorded + b.unitsDispatched -
+        (a.requestsRaised + a.batchesCreated + a.outputsRecorded + a.unitsDispatched),
+    );
+  }
+
   /** On-hand stock snapshot (factory-wide), totals split by unit. */
   private async stockSnapshot() {
     const mats = await this.prisma.material.findMany({
@@ -231,6 +299,7 @@ export class AnalyticsService {
       consumptionByDept,
       topConsumed,
       fulfilment,
+      team,
       recentMovements,
       recentReviews,
     ] = await Promise.all([
@@ -249,6 +318,7 @@ export class AnalyticsService {
       // Top materials by consumption (DEDUCT) — window.
       this.topConsumedMaterials(w),
       this.fulfilmentByDept(),
+      this.teamActivity(w),
       this.prisma.stockTransaction.findMany({
         include: {
           actor: { select: { id: true, name: true } },
@@ -294,6 +364,7 @@ export class AnalyticsService {
       consumptionByDept: consumption,
       topConsumed,
       fulfilment,
+      team,
       recentActivity: { movements: recentMovements, reviews: recentReviews },
     };
   }
@@ -345,7 +416,7 @@ export class AnalyticsService {
     const department = ownDepartment(user); // 403 unless a head with a department
     const w = normalizeWindow(days);
 
-    const [reqByStatus, itemAgg, series, totals, recent] = await Promise.all([
+    const [reqByStatus, itemAgg, series, totals, team, recent] = await Promise.all([
       this.prisma.productionRequest.groupBy({
         by: ['status'],
         where: { department },
@@ -358,6 +429,7 @@ export class AnalyticsService {
       }),
       this.movementSeries(w, department), // ONLY this department's movements
       this.movementTotals(w, department),
+      this.teamActivity(w, department),
       this.prisma.productionRequest.findMany({
         where: { department },
         select: {
@@ -387,6 +459,7 @@ export class AnalyticsService {
       },
       consumptionSeries: series,
       totals,
+      team,
       recentRequests: recent,
     };
   }

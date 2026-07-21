@@ -13,6 +13,7 @@ import { STATUS_COLOR } from '@/components/charts/chartTheme'
 import { WindowToggle } from '@/components/charts/WindowToggle'
 import { Kpi, ChartCard, Empty, DashboardSkeleton } from '@/components/dashboard/parts'
 import { formatUnitTotals, kgOnly, sumByUnit } from '@/lib/units'
+import { TeamActivityCard } from '@/components/dashboard/TeamActivityCard'
 import { useAutoRefresh } from '@/lib/refresh'
 
 const STATUSES: RequestStatus[] = ['PENDING', 'IN_PROGRESS', 'APPROVED', 'PARTIAL', 'REJECTED']
@@ -103,6 +104,10 @@ export function HeadDashboardPage() {
           )}
         </ChartCard>
       </div>
+
+      {/* Attribution: with several heads in one department, who did what stays
+          individually visible — same department data, separate names. */}
+      {data.team.length > 1 && <TeamActivityCard team={data.team} title="Team activity" />}
 
       {/* Recent request history */}
       <Card>

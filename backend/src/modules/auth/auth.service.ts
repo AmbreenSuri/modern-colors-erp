@@ -30,6 +30,9 @@ export class AuthService {
       role: user.role,
     };
 
+    // Best-effort "last login" for the User Management table — must never fail a login.
+    await this.users.touchLastLogin(user.id).catch(() => undefined);
+
     await this.audit.log({
       entityType: 'User',
       entityId: user.id,

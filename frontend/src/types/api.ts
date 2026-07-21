@@ -277,6 +277,31 @@ export interface CreateStockTransaction {
   device?: string
 }
 
+// ── User management (factory Admin) ──
+export interface ManagedUser {
+  id: string
+  email: string
+  name: string
+  role: Role
+  department: Department | null
+  active: boolean
+  lastLoginAt: string | null
+  createdAt: string
+}
+
+/** Per-person activity in the window — PU vs PU2, separately. */
+export interface TeamActivityRow {
+  id: string
+  name: string
+  email: string
+  requestsRaised: number
+  batchesCreated: number
+  outputsRecorded: number
+  outputsConfirmed: number
+  unitsDispatched: number
+  returnsProcessed: number
+}
+
 // ── Phase 2: Analytics dashboards (Step 8 enhancement) ──
 export type StockAlertLevel = 'CRITICAL' | 'LOW'
 
@@ -353,6 +378,7 @@ export interface AdminAnalytics {
   consumptionByDept: { department: Department; totals: UnitTotal[] }[]
   topConsumed: MaterialTotal[]
   fulfilment: Record<Department, Fulfilment>
+  team: TeamActivityRow[]
   recentActivity: {
     movements: (StockTransaction & { material?: { uniqueId: string; materialName: string; sku: string | null; stockUnit?: string } })[]
     reviews: { id: string; department: Department; status: RequestStatus; reviewedAt: string | null; reviewedBy: { name: string } | null }[]
@@ -378,6 +404,7 @@ export interface MyAnalytics {
   fulfilment: Fulfilment
   consumptionSeries: MovementPoint[]
   totals: MovementTotals
+  team: TeamActivityRow[]
   recentRequests: {
     id: string
     status: RequestStatus

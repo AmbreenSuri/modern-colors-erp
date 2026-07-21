@@ -22,6 +22,7 @@ const safeSelect = {
   role: true,
   department: true, // Phase 2 — null for Phase 1 users
   active: true,
+  lastLoginAt: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.UserSelect;
@@ -34,6 +35,11 @@ export class UsersService {
   ) {}
 
   async create(dto: CreateUserDto, actorId?: string): Promise<SafeUser> {
+    // NO ESCALATION on any creation path: privileged roles are seed-only. This also
+    // closes a pre-existing gap where Store's create accepted any Role value.
+    if (dto.role === 'ADMIN' || dto.role === 'OVERSIGHT') {
+      throw new ConflictException('Store and Admin logins can only be created by the seed scripts.');
+    }
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -154,5 +160,10 @@ export class UsersService {
       undefined,
     );
     return { created: true, user };
+  }
+
+  /** Stamp a successful login (User Management display). Best-effort by caller. */
+  async touchLastLogin(id: string): Promise<void> {
+    await this.prisma.user.update({ where: { id }, data: { lastLoginAt: new Date() } });
   }
 }

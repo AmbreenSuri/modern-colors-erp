@@ -25,6 +25,8 @@ import { CompanyBrain } from '@/components/dashboard/CompanyBrain'
 import { DispatchAnalytics } from '@/components/dashboard/DispatchAnalytics'
 import { HandoverReadiness } from '@/components/dashboard/HandoverReadiness'
 import { FgCorrectionCard } from '@/components/dashboard/FgCorrectionCard'
+import { UserManagement } from '@/components/dashboard/UserManagement'
+import { TeamActivityCard } from '@/components/dashboard/TeamActivityCard'
 import { cn } from '@/lib/utils'
 import { formatUnitTotals, kgOnly } from '@/lib/units'
 import { useAutoRefresh } from '@/lib/refresh'
@@ -39,7 +41,7 @@ const TXN_META: Record<StockTxnType, { icon: typeof PlusCircle; cls: string }> =
 }
 
 export function OversightPage() {
-  const [view, setView] = useState<'factory' | 'brain' | 'dispatch' | 'handover'>('brain')
+  const [view, setView] = useState<'factory' | 'brain' | 'dispatch' | 'handover' | 'users'>('brain')
   const [days, setDays] = useState(30)
   const [data, setData] = useState<AdminAnalytics | null>(null)
   const [error, setError] = useState(false)
@@ -75,6 +77,7 @@ export function OversightPage() {
         ['factory', 'Factory'],
         ['dispatch', 'Dispatch'],
         ['handover', 'Handover'],
+        ['users', 'Users'],
       ] as const).map(([k, label]) => (
         <button
           key={k}
@@ -118,6 +121,15 @@ export function OversightPage() {
       <div className="space-y-4">
         {tabs}
         <HandoverReadiness />
+      </div>
+    )
+  }
+
+  if (view === 'users') {
+    return (
+      <div className="space-y-4">
+        {tabs}
+        <UserManagement />
       </div>
     )
   }
@@ -213,6 +225,7 @@ export function OversightPage() {
         <ChartCard title="Fulfilment by department (kg)">
           <FulfilmentBars data={fulfilmentData} />
         </ChartCard>
+        <TeamActivityCard team={data.team} title="Who did what" factoryWide />
       </div>
 
       {/* Activity */}

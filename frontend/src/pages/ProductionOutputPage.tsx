@@ -133,6 +133,12 @@ export function ProductionOutputPage() {
                     · {o.productionDate.slice(0, 10)}
                     {o.shade ? ` · shade ${o.shade}` : ''}
                   </div>
+                  {/* Individual attribution — with multiple heads per department it must
+                      always be visible WHICH one recorded and confirmed. */}
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    recorded by {o.recordedBy?.name ?? '—'}
+                    {o.confirmed && o.confirmedBy ? ` · confirmed by ${o.confirmedBy.name}` : ''}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">

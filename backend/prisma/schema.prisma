@@ -106,6 +106,7 @@ model User {
   role         Role        @default(OPERATOR)
   department   Department? // Phase 2 — set only for PRODUCTION_HEAD users
   active       Boolean     @default(true)
+  lastLoginAt  DateTime? // set on every successful login (User Management display)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
