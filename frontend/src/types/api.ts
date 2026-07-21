@@ -287,10 +287,12 @@ export interface ManagedUser {
   active: boolean
   lastLoginAt: string | null
   createdAt: string
-  /** True for the logins that came with the system, false for ones the Admin created. */
-  seeded: boolean
+  /** True for the logins that came with the system, false for ones the Admin created.
+   *  Optional because the UI and the API deploy separately — an older API omits it,
+   *  and a missing flag must show nothing rather than guess "created by you". */
+  seeded?: boolean
   /** Seeded logins only: still on the published default password. */
-  usingDefaultPassword: boolean
+  usingDefaultPassword?: boolean
 }
 
 /** Per-person activity in the window — PU vs PU2, separately. */

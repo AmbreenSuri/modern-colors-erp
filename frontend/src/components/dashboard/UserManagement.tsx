@@ -131,10 +131,14 @@ export function UserManagement() {
                   <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-chip-500">
                     <Badge variant="outline" className="text-[10px]">{ROLE_LABEL[u.role] ?? u.role}</Badge>
                     {u.department && <Badge variant="secondary" className="text-[10px]">{u.department}</Badge>}
-                    {/* Which logins came with the system and which the Admin made himself. */}
-                    <Badge variant="outline" className={cn('text-[10px]', u.seeded ? 'border-chip-300 text-chip-500' : 'border-primary/40 text-primary')}>
-                      {u.seeded ? 'Came with the system' : 'Created by you'}
-                    </Badge>
+                    {/* Which logins came with the system and which the Admin made himself.
+                        Absent while an older API is still serving — say nothing rather
+                        than label every seeded account as the owner's own. */}
+                    {u.seeded !== undefined && (
+                      <Badge variant="outline" className={cn('text-[10px]', u.seeded ? 'border-chip-300 text-chip-500' : 'border-primary/40 text-primary')}>
+                        {u.seeded ? 'Came with the system' : 'Created by you'}
+                      </Badge>
+                    )}
                     {u.usingDefaultPassword && (
                       <Badge className="bg-warning text-[10px] text-warning-foreground hover:bg-warning">Default password</Badge>
                     )}
