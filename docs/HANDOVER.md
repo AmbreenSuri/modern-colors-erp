@@ -71,6 +71,10 @@ a future auditor sees why the log starts where it does rather than suspecting ta
 Wipes all transactional data. Keeps **every user account**, the encrypted Claude key,
 and (by default) the catalogue.
 
+> The flush also clears the label reprint lock: every unit is new afterwards, so each
+> gets its one approval-free print. The pre-flush "one more free print per existing
+> unit" note in the changelog stops mattering at this point.
+
 ```bash
 cd backend
 

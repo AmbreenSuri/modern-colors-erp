@@ -11,6 +11,58 @@ intent, the entry below reflects what the diff actually changed.
 
 ---
 
+## 22 July 2026 — Labels print once; printing them again needs approval
+
+| Commit | Change |
+|---|---|
+| `bc5755b` | **Reprint approvals — the lock** |
+
+The owner asked for label generation to be a one-time act. Reading the code first
+changed the shape of the fix: **minting already happened exactly once and was already
+guarded** — `QrCode.materialId` is unique for raw material, and `fgGeneratedAt` returns
+409 on a second finished-goods mint. What was unguarded was **printing**. Every label
+route was a stateless `GET` that re-rendered the stored payload, and nothing anywhere
+recorded that a print had happened.
+
+So this is a lock on reprints, not a change to minting. `Material` and `FinishedGood`
+each gained `labelPrintedAt`; the first print of any label set is free, silent, and
+stamps every label in its scope. A later print needs an approved request carrying a
+reason, and **the approval carries a quota** — the factory Admin says how many prints it
+buys, each print spends one, and the request re-locks as `CONSUMED` when they are gone.
+
+Approving is the **third named door** through Oversight's view-only rule, built like the
+other two: its own controller, its own two-sided guard, no `@Roles` anywhere on it.
+Store was the obvious alternative and is the wrong one — Store is itself the main printer
+of raw-material labels, so letting Store approve would have made the commonest case
+self-approval, and the lock would be decoration exactly where it is used most. Because
+Oversight *can* print raw-material labels, self-approval is refused. The sweep in
+`user-admin.spec.ts` now asserts the complete Oversight write surface is exactly three
+doors, so a fourth cannot appear quietly.
+
+All four raw-material export formats share **one** allowance: the CSV feeds label-design
+software that prints the same stickers, so switching format is not a way round the lock.
+A single unit's PNG is its own scope, so pulling one PNG does not lock a whole invoice —
+but printing the roll stamps every unit, so pulling one afterwards is correctly a reprint.
+
+A correction-driven reprint carries its own single-use allowance: `qrReprintNeeded` is set
+only when a correction changed a printed field, which is an Oversight act in its own right,
+and demanding a second approval to fix a label Oversight just invalidated would leave wrong
+stickers on drums while someone waited. Clearing that flag now happens inside the same
+transaction that records the print, so "flag cleared" and "print recorded" can no longer
+disagree — previously they were separate writes.
+
+> **Expect one free print per existing label this week.** Nothing was backfilled: every
+> unit that existed before 22 July 2026 starts with `labelPrintedAt = NULL`, so each gets
+> one more approval-free print and the lock bites from the *second*. This is deliberate —
+> nothing in the data recorded whether a label had ever been printed, so any backfill would
+> have been a guess that could block a genuine first print. It is not a bug, and it becomes
+> moot after the handover flush, when every unit is new.
+
+Reprints go through the **same** `buildLabelRoll` as first prints, never a copy, so the
+216×108pt one-label-per-page geometry cannot drift between them.
+
+---
+
 ## 21 July 2026 (evening) — The factory owner manages his own logins
 
 | Time | Commit | Change |
