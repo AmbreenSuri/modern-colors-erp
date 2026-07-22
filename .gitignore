@@ -53,3 +53,6 @@ WhatsApp*.jpg
 
 # Playwright MCP scratch output (page snapshots can contain live factory data)
 .playwright-mcp/
+
+# Graphify raw output (regenerable machine graph — see docs/KNOWLEDGE_GRAPH_REPORT.md)
+graphify-out/
