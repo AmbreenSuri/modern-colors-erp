@@ -28,6 +28,7 @@ import { DispatchAnalytics } from '@/components/dashboard/DispatchAnalytics'
 import { HandoverReadiness } from '@/components/dashboard/HandoverReadiness'
 import { FgCorrectionCard } from '@/components/dashboard/FgCorrectionCard'
 import { UserManagement } from '@/components/dashboard/UserManagement'
+import { ReprintApprovals } from '@/components/dashboard/ReprintApprovals'
 import { TeamActivityCard } from '@/components/dashboard/TeamActivityCard'
 import { cn } from '@/lib/utils'
 import { formatUnitTotals, kgOnly } from '@/lib/units'
@@ -45,8 +46,10 @@ const TXN_META: Record<StockTxnType, { icon: typeof PlusCircle; cls: string }> =
 export function OversightPage() {
   // Each view is somewhere the owner navigated to, so it gets its own history entry:
   // back closes the view they opened rather than leaving oversight altogether.
-  const [view, setView] = useUrlParam<'factory' | 'brain' | 'dispatch' | 'handover' | 'users'>('view', 'brain', {
-    allowed: ['factory', 'brain', 'dispatch', 'handover', 'users'],
+  const [view, setView] = useUrlParam<
+    'factory' | 'brain' | 'dispatch' | 'handover' | 'users' | 'reprints'
+  >('view', 'brain', {
+    allowed: ['factory', 'brain', 'dispatch', 'handover', 'users', 'reprints'],
   })
   // This screen is the Admin's home, so the usual Back has nowhere to go. On a view
   // other than the default, Back closes that view — matching the system back gesture.
@@ -88,6 +91,7 @@ export function OversightPage() {
         ['dispatch', 'Dispatch'],
         ['handover', 'Handover'],
         ['users', 'Users'],
+        ['reprints', 'Reprints'],
       ] as const).map(([k, label]) => (
         <button
           key={k}
@@ -140,6 +144,15 @@ export function OversightPage() {
       <div className="space-y-4">
         {tabs}
         <UserManagement />
+      </div>
+    )
+  }
+
+  if (view === 'reprints') {
+    return (
+      <div className="space-y-4">
+        {tabs}
+        <ReprintApprovals />
       </div>
     )
   }

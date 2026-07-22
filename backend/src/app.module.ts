@@ -22,6 +22,7 @@ import { BatchModule } from './modules/batch/batch.module';
 import { ProductionOutputModule } from './modules/production-output/production-output.module';
 import { FinishedGoodsModule } from './modules/finished-goods/finished-goods.module';
 
+import { LabelReprintModule } from './modules/label-reprint/label-reprint.module';
 import { HandoverModule } from './handover/handover.module';
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { HandoverModule } from './handover/handover.module';
     BatchModule,
     ProductionOutputModule,
     FinishedGoodsModule,
+    LabelReprintModule,
       HandoverModule,
   ],
   controllers: [HealthController, StorageHealthController],

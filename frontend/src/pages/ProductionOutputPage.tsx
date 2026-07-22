@@ -22,6 +22,7 @@ import { ConfirmationDialog } from '@/components/common/ConfirmationDialog'
 import { toast } from '@/hooks/useToast'
 import { useAutoRefresh } from '@/lib/refresh'
 import { LabelRollFlow } from '@/components/labels/LabelRollFlow'
+import { ReprintGate } from '@/components/labels/ReprintGate'
 
 export function ProductionOutputPage() {
   const { user } = useAuth()
@@ -203,12 +204,14 @@ export function ProductionOutputPage() {
 
                 {/* Explicit Generate → Save → Print for the FG label roll (item 4). */}
                 {o.fgGeneratedAt && (
-                  <LabelRollFlow
-                    path={`/finished-goods/by-output/${o.id}/labels.pdf`}
-                    fileName={`fg-labels-${o.batch?.batchNumber ?? o.id}.pdf`}
-                    unitCount={o._count?.finishedGoods ?? o.packageCount}
-                    label="FG label roll"
-                  />
+                  <ReprintGate scope="FG_OUTPUT_LABELS" targetId={o.id}>
+                    <LabelRollFlow
+                      path={`/finished-goods/by-output/${o.id}/labels.pdf`}
+                      fileName={`fg-labels-${o.batch?.batchNumber ?? o.id}.pdf`}
+                      unitCount={o._count?.finishedGoods ?? o.packageCount}
+                      label="FG label roll"
+                    />
+                  </ReprintGate>
                 )}
               </CardContent>
             </Card>

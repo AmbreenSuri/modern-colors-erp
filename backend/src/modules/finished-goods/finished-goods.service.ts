@@ -8,6 +8,7 @@ import {
 import { BatchStatus, FgStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { LabelReprintService } from '../label-reprint/label-reprint.service';
 import { QrService, type FgQrPayload } from '../qr/qr.service';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
 import { assertDepartmentAccess, departmentFilter } from '../../common/auth/department-scope';
@@ -41,6 +42,7 @@ export class FinishedGoodsService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly qr: QrService,
+    private readonly reprints: LabelReprintService,
   ) {}
 
   async onModuleInit() {
@@ -51,15 +53,23 @@ export class FinishedGoodsService implements OnModuleInit {
     return formatFgId(n);
   }
 
-  /** Single-unit label PDF (3×1.5in) — reprints and refurbished-unit stickers. */
+  /**
+   * Single-unit label PDF (3×1.5in) — reprints and refurbished-unit stickers.
+   *
+   * A refurbished unit is newly minted, so this is its FIRST print and passes freely.
+   * For a unit whose label was already printed, the reprint lock applies — unless a
+   * correction flagged `qrReprintNeeded`, which carries its own single-use allowance
+   * because the correction is what made the sticker on the drum wrong. Clearing that
+   * flag now happens inside consumePrint, so "the flag was cleared" and "a print was
+   * recorded" can never disagree.
+   */
   async unitLabel(user: AuthUser, uniqueId: string): Promise<Buffer> {
     const fg = await this.findByUniqueId(user, uniqueId);
     if (!fg.qrCode?.payload) throw new NotFoundException(`No QR payload stored for ${uniqueId}`);
+    const scope = { kind: 'FG_UNIT_LABEL', finishedGoodId: fg.id } as const;
+    await this.reprints.assertMayPrint(scope);
     const pdf = await this.qr.buildLabelRoll([{ payload: fg.qrCode.payload as unknown as FgQrPayload }]);
-    // Printing the label satisfies a pending "reprint needed" flag from a correction.
-    if ((fg as { qrReprintNeeded?: boolean }).qrReprintNeeded) {
-      await this.prisma.finishedGood.update({ where: { id: fg.id }, data: { qrReprintNeeded: false } });
-    }
+    await this.reprints.consumePrint(scope, user.id, 'PDF');
     return pdf;
   }
 
@@ -284,12 +294,16 @@ export class FinishedGoodsService implements OnModuleInit {
     if (units.length === 0) {
       throw new NotFoundException('No finished-goods units to print for this output.');
     }
-    return this.qr.buildLabelRoll(
+    const scope = { kind: 'FG_OUTPUT_LABELS', outputId } as const;
+    await this.reprints.assertMayPrint(scope);
+    const pdf = await this.qr.buildLabelRoll(
       // Cast through the FG payload type, NOT `as never`. The original `as never`
       // silenced the compiler and let a raw-material-shaped renderer receive an
       // FG payload — which threw at run time on every FG label roll.
       units.map((u) => ({ payload: u.qrCode?.payload as unknown as FgQrPayload })),
     );
+    await this.reprints.consumePrint(scope, user.id, 'PDF');
+    return pdf;
   }
 
   /** List FG units, scoped. Dispatch sees all departments (it ships everything). */

@@ -149,7 +149,8 @@ describe('FinishedGoodsService.correct — non-identity fields only, audited', (
     };
     const audit = { log: jest.fn() };
     const qr = { dataUrl: jest.fn().mockResolvedValue('data:image/png;base64,x') };
-    return { svc: new FinishedGoodsService(prisma as never, audit as never, qr as never), tx, audit };
+    const reprints = { assertMayPrint: async () => undefined, consumePrint: async () => ({ via: 'FIRST_PRINT' }) };
+    return { svc: new FinishedGoodsService(prisma as never, audit as never, qr as never, reprints as never), tx, audit };
   };
 
   it('rejects a correction that changes nothing', async () => {

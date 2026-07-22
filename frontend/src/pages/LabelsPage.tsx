@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { EmptyState } from '@/components/common/EmptyState'
 import { toast } from '@/hooks/useToast'
 import { LabelRollFlow } from '@/components/labels/LabelRollFlow'
+import { ReprintGate } from '@/components/labels/ReprintGate'
 
 export function LabelsPage() {
   const [params] = useSearchParams()
@@ -111,12 +112,15 @@ function LabelsForPo({ poId }: { poId: string }) {
           </Button>
         </div>
       </div>
-      {/* Explicit Generate → Save → Print for the label roll (item 4). */}
-      <LabelRollFlow
-        path={`/purchase-orders/${poId}/labels.pdf`}
-        fileName={`labels-${poId}.pdf`}
-        unitCount={units.length}
-      />
+      {/* Explicit Generate → Save → Print for the label roll (item 4), behind the
+          reprint lock: invisible on the first print, a request form after that. */}
+      <ReprintGate scope="PO_LABELS" targetId={poId}>
+        <LabelRollFlow
+          path={`/purchase-orders/${poId}/labels.pdf`}
+          fileName={`labels-${poId}.pdf`}
+          unitCount={units.length}
+        />
+      </ReprintGate>
 
       <p className="text-xs text-muted-foreground">
         <span className="font-medium">PDF</span> — one 3×1.5" label per page ({units.length} page{units.length === 1 ? '' : 's'}), ready for the label-roll printer.{' '}

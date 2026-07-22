@@ -120,11 +120,13 @@ model User {
   stockTransactions  StockTransaction[]  @relation("TxnActor")
 
   // Phase 3 — batches, production output, dispatch
-  createdBatches   Batch[]            @relation("BatchCreatedBy")
-  recordedOutputs  ProductionOutput[] @relation("OutputRecordedBy")
-  confirmedOutputs ProductionOutput[] @relation("OutputConfirmedBy")
-  dispatchedGoods  FinishedGood[]     @relation("FgDispatchedBy")
-  returnedGoods    FinishedGood[]     @relation("FgReturnedBy")
+  createdBatches   Batch[]               @relation("BatchCreatedBy")
+  recordedOutputs  ProductionOutput[]    @relation("OutputRecordedBy")
+  confirmedOutputs ProductionOutput[]    @relation("OutputConfirmedBy")
+  dispatchedGoods  FinishedGood[]        @relation("FgDispatchedBy")
+  returnedGoods    FinishedGood[]        @relation("FgReturnedBy")
+  reprintRequested LabelReprintRequest[] @relation("ReprintRequestedBy")
+  reprintDecided   LabelReprintRequest[] @relation("ReprintDecidedBy")
 
   @@index([role])
 }
@@ -177,8 +179,9 @@ model PurchaseOrder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  lineItems POLineItem[]
-  materials Material[]
+  lineItems       POLineItem[]
+  materials       Material[]
+  reprintRequests LabelReprintRequest[]
 
   @@index([poNumber])
   @@index([supplier])
@@ -239,11 +242,17 @@ model Material {
   // column keeps its historical name; only the LABEL varies by this field.
   stockUnit String @default("kg")
 
+  // When this unit's label was FIRST printed (in ANY export format — roll PDF, PNG
+  // zip, CSV or single PNG; they all yield the same physical sticker). NULL means
+  // never printed, which is the one print that needs no approval.
+  labelPrintedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  qrCode       QrCode?
-  transactions StockTransaction[] // Phase 2 — append-only stock movements for this unit
+  qrCode          QrCode?
+  transactions    StockTransaction[] // Phase 2 — append-only stock movements for this unit
+  reprintRequests LabelReprintRequest[]
 
   @@index([poId])
   @@index([status])
@@ -448,7 +457,8 @@ model ProductionOutput {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  finishedGoods FinishedGood[]
+  finishedGoods   FinishedGood[]
+  reprintRequests LabelReprintRequest[]
 
   @@index([batchId])
   @@index([confirmed])
@@ -482,19 +492,24 @@ model FinishedGood {
   returnedAt        DateTime?
   returnNote        String?
   returnedById      String?
-  returnedBy        User?          @relation("FgReturnedBy", fields: [returnedById], references: [id])
-  refurbishedFromId String?        @unique
-  refurbishedFrom   FinishedGood?  @relation("FgRefurbLineage", fields: [refurbishedFromId], references: [id])
-  refurbishedInto   FinishedGood?  @relation("FgRefurbLineage")
+  returnedBy        User?         @relation("FgReturnedBy", fields: [returnedById], references: [id])
+  refurbishedFromId String?       @unique
+  refurbishedFrom   FinishedGood? @relation("FgRefurbLineage", fields: [refurbishedFromId], references: [id])
+  refurbishedInto   FinishedGood? @relation("FgRefurbLineage")
 
   // Set when a correction changed a field printed on the physical label (product
   // name / size); cleared when the unit's label is reprinted.
   qrReprintNeeded Boolean @default(false)
 
+  // When this unit's label was FIRST printed, whether via the output roll or its own
+  // single-unit PDF. NULL = never printed; that first print needs no approval.
+  labelPrintedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  qrCode FinishedGoodQr?
+  qrCode          FinishedGoodQr?
+  reprintRequests LabelReprintRequest[]
 
   @@index([batchId])
   @@index([outputId])
@@ -510,4 +525,71 @@ model FinishedGoodQr {
   payload        Json // { uniqueId, productName, batch, size, department, date }
   imageRef       String? // data URL of the rendered QR PNG
   createdAt      DateTime     @default(now())
+}
+
+// ───────────────────── Label reprint approvals (the lock) ─────────────────────
+
+// Which labels one request covers. Exactly one target column is set — enforced by a
+// CHECK constraint in the migration, because Prisma cannot express it.
+enum LabelScope {
+  PO_LABELS // every unit of a purchase order
+  MC_UNIT_LABEL // a single raw-material unit (its individual PNG)
+  FG_OUTPUT_LABELS // every finished-goods unit of a production output
+  FG_UNIT_LABEL // a single finished-goods unit
+}
+
+enum ReprintStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CONSUMED // the approved number of prints has been used up
+}
+
+/**
+ * A request to print labels that have ALREADY been printed once.
+ * Minting is untouched by this — a QR is still created exactly once, at registration
+ * (MC) or at output confirm (FG). This table gates only the REPRINT: the same stored
+ * payload, through the same label renderer, onto more paper.
+ * The approval carries a QUOTA. The factory Admin decides how many prints it buys
+ * (`printsApproved`); each print increments `printsUsed`, and the request flips to
+ * CONSUMED when the quota is spent. So it is a lock, not a workflow: once open, the
+ * print behaves exactly as it always has, for as many prints as were granted.
+ */
+model LabelReprintRequest {
+  id    String     @id @default(uuid())
+  scope LabelScope
+
+  poId String?
+  po   PurchaseOrder? @relation(fields: [poId], references: [id], onDelete: Cascade)
+
+  materialId String?
+  material   Material? @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  outputId String?
+  output   ProductionOutput? @relation(fields: [outputId], references: [id], onDelete: Cascade)
+
+  finishedGoodId String?
+  finishedGood   FinishedGood? @relation(fields: [finishedGoodId], references: [id], onDelete: Cascade)
+
+  reason String // required — why these labels need printing again
+  status ReprintStatus @default(PENDING)
+
+  requestedById String
+  requestedBy   User     @relation("ReprintRequestedBy", fields: [requestedById], references: [id])
+  requestedAt   DateTime @default(now())
+
+  // Set on approval. printsApproved is the Admin's choice, not a fixed 1.
+  decidedById    String?
+  decidedBy      User?     @relation("ReprintDecidedBy", fields: [decidedById], references: [id])
+  decidedAt      DateTime?
+  decisionNote   String?
+  printsApproved Int       @default(0)
+  printsUsed     Int       @default(0)
+  lastPrintedAt  DateTime?
+
+  @@index([status])
+  @@index([poId])
+  @@index([materialId])
+  @@index([outputId])
+  @@index([finishedGoodId])
 }

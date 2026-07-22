@@ -17,6 +17,7 @@ import { MaterialService } from './material.service';
 import { QrService, QrPayload, LabelInput } from '../qr/qr.service';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { SetPackWeightDto } from './dto/set-pack-weight.dto';
+import { LabelReprintService } from '../label-reprint/label-reprint.service';
 
 /**
  * Raw-material units, QR images and label sheets. These are Phase 1 + oversight data:
@@ -31,6 +32,7 @@ export class MaterialController {
   constructor(
     private readonly materials: MaterialService,
     private readonly qr: QrService,
+    private readonly reprints: LabelReprintService,
   ) {}
 
   @Get('materials')
@@ -113,9 +115,14 @@ export class MaterialController {
 
   // Single unit's QR as a PNG — individual download / print-shop use (item 12).
   @Get('materials/:id/qr.png')
-  async qrPng(@Param('id') id: string): Promise<StreamableFile> {
+  async qrPng(@CurrentUser() user: AuthUser, @Param('id') id: string): Promise<StreamableFile> {
+    // A single unit's sticker is its own scope: pulling one PNG must not lock the
+    // whole invoice, but it IS a print of that unit's label.
+    const scope = { kind: 'MC_UNIT_LABEL', materialId: id } as const;
+    await this.reprints.assertMayPrint(scope);
     const material = await this.materials.findOne(id);
     const png = await this.qr.pngBuffer(this.payloadFor(material));
+    await this.reprints.consumePrint(scope, user.id, 'PNG');
     const safe = material.uniqueId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
     return new StreamableFile(png, {
       type: 'image/png',
@@ -126,9 +133,14 @@ export class MaterialController {
   // Printable QR labels (PDF) — ONE 3×1.5" label per page for a label-roll printer,
   // so page count === unit count. All units of an invoice.
   @Get('purchase-orders/:poId/labels.pdf')
-  async labels(@Param('poId') poId: string): Promise<StreamableFile> {
+  async labels(@CurrentUser() user: AuthUser, @Param('poId') poId: string): Promise<StreamableFile> {
+    const scope = { kind: 'PO_LABELS', poId } as const;
+    await this.reprints.assertMayPrint(scope);
     const items = await this.labelItems(poId);
+    // The SAME renderer as the first print — a reprint is never a separate code path,
+    // so the 3x1.5in one-label-per-page geometry cannot drift between the two.
     const pdf = await this.qr.buildLabelRoll(items);
+    await this.reprints.consumePrint(scope, user.id, 'PDF');
     const safePoId = poId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
     return new StreamableFile(pdf, {
       type: 'application/pdf',
@@ -138,9 +150,12 @@ export class MaterialController {
 
   // Individual QR PNGs (one per unit, named by unique ID) bundled as a ZIP (item 12).
   @Get('purchase-orders/:poId/labels.zip')
-  async labelsZip(@Param('poId') poId: string): Promise<StreamableFile> {
+  async labelsZip(@CurrentUser() user: AuthUser, @Param('poId') poId: string): Promise<StreamableFile> {
+    const scope = { kind: 'PO_LABELS', poId } as const;
+    await this.reprints.assertMayPrint(scope);
     const items = await this.labelItems(poId);
     const zip = await this.qr.buildLabelsZip(items);
+    await this.reprints.consumePrint(scope, user.id, 'ZIP');
     const safePoId = poId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
     return new StreamableFile(zip, {
       type: 'application/zip',
@@ -151,7 +166,11 @@ export class MaterialController {
   // CSV of label data (incl. the exact QR payload string) — for label-design
   // software like BarTender / NiceLabel to merge onto a .btw/.lbl template.
   @Get('purchase-orders/:poId/labels.csv')
-  async labelsCsv(@Param('poId') poId: string): Promise<StreamableFile> {
+  async labelsCsv(@CurrentUser() user: AuthUser, @Param('poId') poId: string): Promise<StreamableFile> {
+    // The CSV feeds BarTender/NiceLabel, which prints the same stickers — so it draws
+    // on the same allowance as the PDF and the ZIP rather than being a way around it.
+    const scope = { kind: 'PO_LABELS', poId } as const;
+    await this.reprints.assertMayPrint(scope);
     const items = await this.labelItems(poId);
     const cell = (v: unknown) => {
       let s = v == null ? '' : String(v);
@@ -172,6 +191,7 @@ export class MaterialController {
     });
     // Prepend a BOM so Excel opens UTF-8 correctly; CRLF line endings.
     const csv = '﻿' + [header.join(','), ...rows].join('\r\n');
+    await this.reprints.consumePrint(scope, user.id, 'CSV');
     const safePoId = poId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
     return new StreamableFile(Buffer.from(csv, 'utf8'), {
       type: 'text/csv; charset=utf-8',

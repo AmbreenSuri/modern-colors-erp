@@ -688,3 +688,34 @@ export interface FactoryFlow {
   }
   derived: { yieldPct: number | null; inProcessKg: number; awaitingDispatchUnits: number }
 }
+
+// ── Label reprint approvals (the lock) ──
+
+export type ReprintScope = 'PO_LABELS' | 'MC_UNIT_LABEL' | 'FG_OUTPUT_LABELS' | 'FG_UNIT_LABEL'
+export type ReprintStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CONSUMED'
+
+export interface ReprintRequest {
+  id: string
+  scope: ReprintScope
+  reason: string
+  status: ReprintStatus
+  requestedAt: string
+  requestedBy?: { email: string; name: string | null } | null
+  decidedBy?: { email: string; name: string | null } | null
+  decidedAt: string | null
+  decisionNote: string | null
+  /** How many prints the factory Admin allowed, and how many are gone. */
+  printsApproved: number
+  printsUsed: number
+  po?: { poNumber: string | null; supplier: string | null } | null
+  material?: { uniqueId: string; materialName: string } | null
+  output?: { productName: string; batch: { batchNumber: string } } | null
+  finishedGood?: { uniqueId: string; productName: string } | null
+}
+
+/** The whole contract for one label set: has it been printed, and may it print now? */
+export interface ReprintStatusView {
+  alreadyPrinted: boolean
+  mayPrint: boolean
+  request: ReprintRequest | null
+}

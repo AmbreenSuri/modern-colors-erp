@@ -6,6 +6,7 @@ import * as bcrypt from 'bcryptjs';
 import { ROLES_KEY } from '../../common/decorators/roles.decorator';
 import { ALLOW_CORRECTION_KEY } from '../../common/decorators/allow-correction.decorator';
 import { ALLOW_USER_ADMIN_KEY } from '../../common/decorators/allow-user-admin.decorator';
+import { ALLOW_REPRINT_APPROVAL_KEY } from '../../common/decorators/allow-reprint-approval.decorator';
 import { UserAdminGuard } from '../../common/guards/user-admin.guard';
 import { UserAdminController } from './user-admin.controller';
 import { UserAdminService, LOGIN_DOMAIN } from './user-admin.service';
@@ -23,6 +24,10 @@ import { BatchController } from '../batch/batch.controller';
 import { ProductionOutputController } from '../production-output/production-output.controller';
 import { AnalyticsController } from '../analytics/analytics.controller';
 import { ReceivingController } from '../receiving/receiving.controller';
+import {
+  LabelReprintController,
+  LabelReprintApprovalController,
+} from '../label-reprint/label-reprint.controller';
 
 /**
  * User management is the SECOND named door through OVERSIGHT's view-only rule.
@@ -46,6 +51,8 @@ const ALL_CONTROLLERS: [string, any][] = [
   ['ProductionOutputController', ProductionOutputController],
   ['AnalyticsController', AnalyticsController],
   ['ReceivingController', ReceivingController],
+  ['LabelReprintController', LabelReprintController],
+  ['LabelReprintApprovalController', LabelReprintApprovalController],
 ];
 
 const methodsOf = (c: any): string[] =>
@@ -70,18 +77,27 @@ describe('the OVERSIGHT write surface stays exactly two named doors', () => {
     }
   });
 
-  it('@AllowUserAdmin exists ONLY on UserAdminController, @AllowCorrection only on the FG correction', () => {
+  it('each door marker exists ONLY on its own controller — the complete Oversight write surface', () => {
     const userAdmin: string[] = [];
     const corrections: string[] = [];
+    const reprints: string[] = [];
     for (const [name, controller] of ALL_CONTROLLERS) {
       for (const m of methodsOf(controller)) {
         if (reflector.getAllAndOverride<boolean>(ALLOW_USER_ADMIN_KEY, [controller.prototype[m], controller]))
           userAdmin.push(`${name}.${m}`);
         if (reflector.getAllAndOverride<boolean>(ALLOW_CORRECTION_KEY, [controller.prototype[m], controller]))
           corrections.push(`${name}.${m}`);
+        if (reflector.getAllAndOverride<boolean>(ALLOW_REPRINT_APPROVAL_KEY, [controller.prototype[m], controller]))
+          reprints.push(`${name}.${m}`);
       }
     }
     expect(corrections).toEqual(['FgCorrectionsController.correct']);
+    // The THIRD door: deciding a label reprint. Approving and rejecting, nothing else —
+    // notably NOT printing, which stays with the roles that already had it.
+    expect(reprints.sort()).toEqual([
+      'LabelReprintApprovalController.approve',
+      'LabelReprintApprovalController.reject',
+    ]);
     expect(userAdmin.sort()).toEqual([
       'UserAdminController.create',
       'UserAdminController.deactivate',

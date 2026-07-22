@@ -49,9 +49,13 @@ describe('Phase 3 — FG generation gate', () => {
       productionOutput: { findUnique: async () => output },
       $executeRawUnsafe: async () => undefined,
     };
-    const svc = new FinishedGoodsService(prisma, { log: async () => undefined }, {
-      dataUrl: async () => 'data:image/png;base64,x',
-    });
+    const svc = new FinishedGoodsService(
+      prisma,
+      { log: async () => undefined } as never,
+      { dataUrl: async () => 'data:image/png;base64,x' } as never,
+      // Minting never consults the lock — asserted structurally in label-reprint.spec.ts.
+      { assertMayPrint: async () => undefined, consumePrint: async () => ({ via: 'FIRST_PRINT' }) } as never,
+    );
     return svc;
   }
   const store = { id: 'u1', role: 'ADMIN', name: 'Store', email: 'a@b', department: null } as any;
