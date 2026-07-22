@@ -36,6 +36,7 @@ Read in this order:
 |---|---|
 | This README | The product, the stack, the invariants, how to run it |
 | [`docs/KNOWLEDGE_GRAPH.md`](./docs/KNOWLEDGE_GRAPH.md) | **Visual map first** — 6 diagrams: system context, module graph, data model, material lifecycle, god nodes, route map |
+| [`docs/knowledge-graph-interactive.html`](./docs/knowledge-graph-interactive.html) | The same graph as a live, explorable force-directed visualization — open it in a browser |
 | [`docs/KNOWLEDGE_GRAPH_REPORT.md`](./docs/KNOWLEDGE_GRAPH_REPORT.md) | The narrative index behind the diagrams — god-node explanations, subsystem table, navigation playbook |
 | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | The **current** live architecture, all three phases |
 | [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) | What was built and when, reconstructed from git |

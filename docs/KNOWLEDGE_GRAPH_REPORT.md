@@ -8,9 +8,13 @@
 ## How to use these two files
 
 1. Skim [`KNOWLEDGE_GRAPH.md`](./KNOWLEDGE_GRAPH.md) top to bottom — six diagrams, ~2 minutes.
-2. Come back here for the god-node explanations, the subsystem table, and the
+2. Open [`knowledge-graph-interactive.html`](./knowledge-graph-interactive.html) in a
+   browser to explore the same graph as a live force-directed visualization — drag to
+   pan, scroll to zoom, click any of the 2,035 nodes for its file, line count, and full
+   import / imported-by list, grouped into 152 labeled subsystems.
+3. Come back here for the god-node explanations, the subsystem table, and the
    navigation playbook below.
-3. For invariants, exact endpoints, and field-level detail, the standing docs are
+4. For invariants, exact endpoints, and field-level detail, the standing docs are
    still authoritative: [`ARCHITECTURE.md`](./ARCHITECTURE.md) (structure + invariants)
    and [`FIELD_REFERENCE.md`](./FIELD_REFERENCE.md) (every DB column). This report
    doesn't duplicate them — it's the map that tells you which of them to open.
@@ -128,16 +132,29 @@ The diagrams in `KNOWLEDGE_GRAPH.md` and the stats above were built by:
    local, no-LLM AST pass over the repo:
    ```bash
    pip install graphifyy   # or: uv tool install graphifyy
-   graphify extract . --code-only      # tree-sitter AST → graph.json (2035 nodes, 5089 edges)
-   graphify cluster-only . --no-label  # Leiden communities + GRAPH_REPORT.md
+   graphify extract . --code-only                     # tree-sitter AST → graph.json (2035 nodes, 5089 edges)
+   graphify cluster-only . --backend claude-cli        # Leiden communities, named via the local `claude` CLI
    graphify god-nodes --top 25 --graph graphify-out/graph.json
    ```
    This writes `graphify-out/graph.json`, `graphify-out/graph.html` (interactive,
-   force-directed) and `graphify-out/GRAPH_REPORT.md` — all gitignored here since
-   they're large, regenerable, and machine-oriented, not something you'd read directly.
-   Open `graph.html` in a browser if you want to click through the raw graph, or run
-   `graphify query "<question>"` / `graphify explain "<Node>"` / `graphify path "A" "B"`
-   against `graphify-out/graph.json` for ad-hoc queries.
+   force-directed, vis-network) and `graphify-out/GRAPH_REPORT.md`. `graphify-out/` is
+   gitignored — it's regenerable and machine-oriented — but `graph.html` was copied to
+   [`docs/knowledge-graph-interactive.html`](./knowledge-graph-interactive.html) with
+   its one CDN script (`vis-network`) inlined, so it's a single self-contained file that
+   opens straight from the repo, offline, no build step. Regenerate + re-inline after
+   structural changes:
+   ```bash
+   graphify cluster-only . --backend claude-cli
+   python3 -c "
+   import re
+   html = open('graphify-out/graph.html').read()
+   lib = open('vis-network.min.js').read()   # curl -sL -o vis-network.min.js https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js
+   pattern = re.compile(r'<script src=\"https://unpkg\.com/vis-network[^>]*></script>')
+   open('docs/knowledge-graph-interactive.html', 'w').write(pattern.sub(lambda m: f'<script>\n{lib}\n</script>', html))
+   "
+   ```
+   Or run `graphify query "<question>"` / `graphify explain "<Node>"` /
+   `graphify path "A" "B"` against `graphify-out/graph.json` directly for ad-hoc queries.
 2. Cross-referencing the extracted module-import graph, Prisma schema relations, and
    route table directly against the source (not inferred) to build the Mermaid
    diagrams in `KNOWLEDGE_GRAPH.md`.

@@ -6,6 +6,10 @@
 >
 > **Companion doc:** [`KNOWLEDGE_GRAPH_REPORT.md`](./KNOWLEDGE_GRAPH_REPORT.md) — the
 > narrative index (god nodes, subsystem table, navigation playbook).
+> **Want to explore instead of read?** Open
+> [`knowledge-graph-interactive.html`](./knowledge-graph-interactive.html) in a browser —
+> a force-directed, zoomable, searchable graph of every module in the repo (152 labeled
+> subsystems), click any node for its file, line count, and full import/imported-by list.
 > **Source of truth for prose/invariants:** [`ARCHITECTURE.md`](./ARCHITECTURE.md) — this
 > graph is derived from it plus a static-analysis pass over the code (see
 > [Provenance](./KNOWLEDGE_GRAPH_REPORT.md#provenance--how-to-regenerate)).
