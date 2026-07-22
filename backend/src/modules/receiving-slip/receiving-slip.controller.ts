@@ -45,9 +45,12 @@ export class ReceivingSlipController {
     return this.slips.findOne(id);
   }
 
-  /** Closes the slip at session Done. The Gate owns the physical count. */
+  /**
+   * Closes the slip when receiving is done. STORE owns the physical count now — after
+   * the re-cut, Gate never touches a unit, so it cannot know how many arrived.
+   */
   @Post(':id/finalize')
-  @Roles(Role.OPERATOR)
+  @Roles(Role.ADMIN)
   finalize(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: FinalizeDto) {
     return this.slips.finalize(user, id, dto.scannedCount);
   }
