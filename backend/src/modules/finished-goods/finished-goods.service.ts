@@ -306,6 +306,31 @@ export class FinishedGoodsService implements OnModuleInit {
     return pdf;
   }
 
+  /**
+   * OVERSIGHT label PREVIEW for a finished-goods output — watermarked, and NOT the print
+   * path: no assertMayPrint, no consumePrint, so viewing spends no reprint allowance and
+   * yields no clean printable sheet. Audited LABEL_VIEWED. The real print path (labelRoll
+   * above) is untouched.
+   */
+  async previewLabelRoll(user: AuthUser, outputId: string): Promise<Buffer> {
+    const units = await this.forOutput(user, outputId);
+    if (units.length === 0) {
+      throw new NotFoundException('No finished-goods units to preview for this output.');
+    }
+    const roll = await this.qr.buildLabelRoll(
+      units.map((u) => ({ payload: u.qrCode?.payload as unknown as FgQrPayload })),
+    );
+    const pdf = await this.qr.watermark(roll, 'OVERSIGHT VIEW - NOT FOR PRINT');
+    await this.audit.log({
+      entityType: 'Label',
+      entityId: outputId,
+      action: 'LABEL_VIEWED',
+      actorId: user.id,
+      after: { scope: 'FG_OUTPUT_LABELS', unitCount: units.length },
+    });
+    return pdf;
+  }
+
   /** List FG units, scoped. Dispatch sees all departments (it ships everything). */
   async list(
     user: AuthUser,

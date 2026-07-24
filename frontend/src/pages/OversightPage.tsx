@@ -29,6 +29,7 @@ import { HandoverReadiness } from '@/components/dashboard/HandoverReadiness'
 import { FgCorrectionCard } from '@/components/dashboard/FgCorrectionCard'
 import { UserManagement } from '@/components/dashboard/UserManagement'
 import { ReprintApprovals } from '@/components/dashboard/ReprintApprovals'
+import { AuditExplorer } from '@/components/audit/AuditExplorer'
 import { TeamActivityCard } from '@/components/dashboard/TeamActivityCard'
 import { cn } from '@/lib/utils'
 import { formatUnitTotals, kgOnly } from '@/lib/units'
@@ -47,9 +48,9 @@ export function OversightPage() {
   // Each view is somewhere the owner navigated to, so it gets its own history entry:
   // back closes the view they opened rather than leaving oversight altogether.
   const [view, setView] = useUrlParam<
-    'factory' | 'brain' | 'dispatch' | 'handover' | 'users' | 'reprints'
+    'factory' | 'brain' | 'dispatch' | 'handover' | 'users' | 'reprints' | 'audit'
   >('view', 'brain', {
-    allowed: ['factory', 'brain', 'dispatch', 'handover', 'users', 'reprints'],
+    allowed: ['factory', 'brain', 'dispatch', 'handover', 'users', 'reprints', 'audit'],
   })
   // This screen is the Admin's home, so the usual Back has nowhere to go. On a view
   // other than the default, Back closes that view — matching the system back gesture.
@@ -92,6 +93,7 @@ export function OversightPage() {
         ['handover', 'Handover'],
         ['users', 'Users'],
         ['reprints', 'Reprints'],
+        ['audit', 'Audit'],
       ] as const).map(([k, label]) => (
         <button
           key={k}
@@ -153,6 +155,17 @@ export function OversightPage() {
       <div className="space-y-4">
         {tabs}
         <ReprintApprovals />
+      </div>
+    )
+  }
+
+  if (view === 'audit') {
+    return (
+      <div className="space-y-4">
+        {tabs}
+        {/* The owner's "sees everything": the whole trail, filterable by login, action
+            and date, with per-login activity counts. Read-only — no new write door. */}
+        <AuditExplorer showActorFilter />
       </div>
     )
   }

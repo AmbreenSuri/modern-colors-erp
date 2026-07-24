@@ -19,6 +19,7 @@ import { QrService, QrPayload, LabelInput } from '../qr/qr.service';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { SetPackWeightDto } from './dto/set-pack-weight.dto';
 import { LabelReprintService } from '../label-reprint/label-reprint.service';
+import { AuditService } from '../audit/audit.service';
 
 /**
  * Raw-material units, QR images and label sheets. These are Phase 1 + oversight data:
@@ -36,6 +37,7 @@ export class MaterialController {
     private readonly materials: MaterialService,
     private readonly qr: QrService,
     private readonly reprints: LabelReprintService,
+    private readonly audit: AuditService,
   ) {}
 
   @Get('materials')
@@ -224,6 +226,28 @@ export class MaterialController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.setPackWeight(poId, dto, user);
+  }
+
+  /**
+   * OVERSIGHT label PREVIEW — the "sees everything" view of a sticker, watermarked and
+   * deliberately NOT the print path: it never touches the reprint lock (no consumePrint,
+   * so no allowance is spent and no clean printable sheet is produced) and is audited as
+   * LABEL_VIEWED, not PRINTED. The real print path is untouched.
+   */
+  @Get('purchase-orders/:poId/labels-preview.pdf')
+  @Roles(Role.OVERSIGHT)
+  async labelsPreview(@CurrentUser() user: AuthUser, @Param('poId') poId: string): Promise<StreamableFile> {
+    const items = await this.labelItems(poId);
+    const roll = await this.qr.buildLabelRoll(items);
+    const pdf = await this.qr.watermark(roll, 'OVERSIGHT VIEW - NOT FOR PRINT');
+    await this.audit.log({
+      entityType: 'Label',
+      entityId: poId,
+      action: 'LABEL_VIEWED',
+      actorId: user.id,
+      after: { scope: 'PO_LABELS', unitCount: items.length },
+    });
+    return new StreamableFile(pdf, { type: 'application/pdf', disposition: `inline; filename="preview-${poId}.pdf"` });
   }
 
   // ── helpers ──

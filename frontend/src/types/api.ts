@@ -128,7 +128,16 @@ export interface AuditEntry {
   action: string
   device: string | null
   createdAt: string
-  actor?: { name: string; email: string; role: Role } | null
+  beforeJson?: unknown
+  afterJson?: unknown
+  actor?: { id?: string; name: string; email: string; role: Role } | null
+}
+
+/** Per-login activity count from the audit engine's summary. */
+export interface AuditSummaryRow {
+  actor: { id: string; name: string | null; email: string; role: Role } | null
+  actorId: string | null
+  count: number
 }
 
 export interface ApiKeyStatus {

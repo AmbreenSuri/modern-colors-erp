@@ -180,6 +180,33 @@ export class QrService {
     return payload.uniqueId?.trim() || JSON.stringify(payload);
   }
 
+  /**
+   * Stamp a diagonal watermark across every page of a rendered label PDF.
+   *
+   * This is what makes an Oversight label PREVIEW visibly not-for-print: the owner can
+   * see exactly what a sticker says without it becoming a covert print path. The preview
+   * route never calls the reprint lock's consumePrint and audits the act as LABEL_VIEWED,
+   * so viewing can neither spend a reprint allowance nor produce a clean printable sheet.
+   */
+  async watermark(pdf: Buffer, text: string): Promise<Buffer> {
+    const doc = await PDFDocument.load(pdf);
+    const font = await doc.embedFont(StandardFonts.HelveticaBold);
+    for (const page of doc.getPages()) {
+      const { width, height } = page.getSize();
+      const size = Math.max(8, Math.min(width, height) / 10);
+      page.drawText(text, {
+        x: width * 0.08,
+        y: height * 0.45,
+        size,
+        font,
+        color: rgb(0.85, 0.1, 0.1),
+        rotate: { type: 'degrees', angle: 32 } as never,
+        opacity: 0.28,
+      });
+    }
+    return Buffer.from(await doc.save());
+  }
+
   dataUrl(payload: AnyQrPayload): Promise<string> {
     return QRCode.toDataURL(QrService.qrContent(payload), { width: 320, margin: 1 });
   }

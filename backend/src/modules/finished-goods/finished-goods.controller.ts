@@ -60,6 +60,22 @@ export class FinishedGoodsController {
     });
   }
 
+  /**
+   * OVERSIGHT label PREVIEW — watermarked, not the print path (no reprint allowance
+   * spent), audited LABEL_VIEWED. See FinishedGoodsService.previewLabelRoll.
+   */
+  @Get('by-output/:outputId/labels-preview.pdf')
+  @Roles(Role.OVERSIGHT)
+  @Header('Content-Type', 'application/pdf')
+  async labelsPreview(
+    @CurrentUser() user: AuthUser,
+    @Param('outputId') outputId: string,
+  ): Promise<StreamableFile> {
+    const pdf = await this.fg.previewLabelRoll(user, outputId);
+    const safe = outputId.replace(/[^a-zA-Z0-9_-]/g, '');
+    return new StreamableFile(pdf, { type: 'application/pdf', disposition: `inline; filename="fg-preview-${safe}.pdf"` });
+  }
+
   // ── Listing (Dispatch sees FG across all departments; heads only their own) ──
 
   @Get()
