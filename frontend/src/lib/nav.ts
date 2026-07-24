@@ -57,7 +57,7 @@ export const ROUTE_ROLES: Record<string, Role[] | null> = {
   '/oversight': ['OVERSIGHT'],
   '/store': ['ADMIN'],
   '/my': ['PRODUCTION_HEAD'],
-  '/batches': ['PRODUCTION_HEAD', 'ADMIN', 'OVERSIGHT'],
+  '/batches': ['PRODUCTION_HEAD', 'OVERSIGHT'],
   '/production-output': ['PRODUCTION_HEAD'],
   '/dispatch': ['DISPATCH'],
   '/review-inwards': ['REVIEWER', 'OVERSIGHT'],

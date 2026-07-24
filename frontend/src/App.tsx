@@ -115,7 +115,7 @@ function AuthedRoutes() {
         <Route path="oversight" element={<RequireRole roles={['OVERSIGHT']}><Suspense fallback={<DashboardFallback />}><OversightPage /></Suspense></RequireRole>} />
         <Route path="store" element={<RequireRole roles={['ADMIN']}><Suspense fallback={<DashboardFallback />}><StoreDashboardPage /></Suspense></RequireRole>} />
         <Route path="my" element={<RequireRole roles={['PRODUCTION_HEAD']}><Suspense fallback={<DashboardFallback />}><HeadDashboardPage /></Suspense></RequireRole>} />
-        <Route path="batches" element={<RequireRole roles={['PRODUCTION_HEAD', 'ADMIN', 'OVERSIGHT']}><Suspense fallback={<DashboardFallback />}><BatchesPage /></Suspense></RequireRole>} />
+        <Route path="batches" element={<RequireRole roles={['PRODUCTION_HEAD', 'OVERSIGHT']}><Suspense fallback={<DashboardFallback />}><BatchesPage /></Suspense></RequireRole>} />
         <Route path="production-output" element={<RequireRole roles={['PRODUCTION_HEAD']}><Suspense fallback={<DashboardFallback />}><ProductionOutputPage /></Suspense></RequireRole>} />
         <Route path="dispatch" element={<RequireRole roles={['DISPATCH']}><Suspense fallback={<DashboardFallback />}><DispatchPage /></Suspense></RequireRole>} />
         <Route path="review-inwards" element={<RequireRole roles={['REVIEWER', 'OVERSIGHT']}><ReviewInwardsPage /></RequireRole>} />

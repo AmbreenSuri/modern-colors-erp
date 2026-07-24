@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/auth'
+import { useStoreInwardAccess } from '@/lib/useSystemFlag'
 import { LogoLockup } from '@/components/brand/Logo'
 import type { Role } from '@/types/api'
 
@@ -63,7 +64,8 @@ const navItems: { to: string; label: string; icon: typeof LayoutDashboard; roles
   { to: '/stock', label: 'Scan & Issue', icon: PackageSearch, roles: ['ADMIN'] },
   { to: '/stock-levels', label: 'Stock Levels', icon: Boxes, roles: ['ADMIN', 'OVERSIGHT'] },
   // Phase 3 — batches thread raw materials to finished goods.
-  { to: '/batches', label: 'Batches', icon: Layers, roles: ['PRODUCTION_HEAD', 'ADMIN', 'OVERSIGHT'] },
+  // Cross-department batch visibility is the factory Admin's (OVERSIGHT), not Store's.
+  { to: '/batches', label: 'Batches', icon: Layers, roles: ['PRODUCTION_HEAD', 'OVERSIGHT'] },
   { to: '/production-output', label: 'Production Output', icon: FlaskConical, roles: ['PRODUCTION_HEAD'] },
   { to: '/purchase-orders', label: 'Invoice Upload', icon: FileUp, roles: PHASE1_ROLES },
   { to: '/review', label: 'Review & Confirm', icon: ClipboardCheck, roles: PHASE1_ROLES },
@@ -76,7 +78,16 @@ const navItems: { to: string; label: string; icon: typeof LayoutDashboard; roles
 
 export function Sidebar({ open = false, onNavigate }: { open?: boolean; onNavigate?: () => void }) {
   const { user } = useAuth()
-  const items = navItems.filter((i) => !i.roles || (user && i.roles.includes(user.role)))
+  const inwardAccess = useStoreInwardAccess()
+  const items = navItems.filter((i) => {
+    if (i.roles && !(user && i.roles.includes(user.role))) return false
+    // Flag-aware: when Store's inward access is switched off, Invoice Upload — the
+    // upload entry point — disappears from Store's nav. It returns automatically if the
+    // flag is ever flipped back. Review & Confirm, labels and receiving stay: Store
+    // still works, from the slip. The server enforces the block regardless of this.
+    if (i.to === '/purchase-orders' && user?.role === 'ADMIN' && inwardAccess === 'off') return false
+    return true
+  })
   // A production head's department is more useful here than the generic role.
   const roleLabel = user
     ? user.role === 'PRODUCTION_HEAD' && user.department

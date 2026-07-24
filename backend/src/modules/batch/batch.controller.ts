@@ -10,7 +10,11 @@ import { CreateBatchDto } from './dto/create-batch.dto';
 // Heads manage their OWN department's batches; Store and Admin can read all (they need
 // the batch context on the request inbox and for traceability). Dispatch gets nothing
 // here — it only ever sees finished goods.
-const READ_ROLES = [Role.PRODUCTION_HEAD, Role.ADMIN, Role.OVERSIGHT] as const;
+// Cross-department batch visibility belongs to the factory Admin — which is OVERSIGHT,
+// not the Store desk (ADMIN). Store issues AGAINST batches, but that batch context comes
+// from the request-item it is issuing (the issue payload carries batchNumber), never from
+// reading the batch list — so Store loses nothing operational by dropping off this read.
+const READ_ROLES = [Role.PRODUCTION_HEAD, Role.OVERSIGHT] as const;
 
 @Controller('batches')
 @UseGuards(JwtAuthGuard, RolesGuard)
